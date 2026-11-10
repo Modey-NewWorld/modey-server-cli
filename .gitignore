@@ -1,0 +1,14 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+dist/
+coverage/
+.env
+.env.local
+
+# Minecraft runtime folders (when tested locally in repo)
+/server/
+/world/
+/logs/
+/crash-reports/
