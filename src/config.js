@@ -54,8 +54,12 @@ function createDefaultConfig({
   apiUrl = DEFAULT_AUTH_URL,
   nodeToken = ''
 } = {}) {
+  const p = Number(port) || 25565;
   return {
     schema_version: '1.0',
+    id: slug,
+    slug,
+    name,
     identity: {
       name,
       slug,
@@ -64,9 +68,27 @@ function createDefaultConfig({
       loader_version: loaderVersion,
       motd: `Bienvenue sur ${name} (Modey Network)`
     },
+    game: {
+      minecraft_version: minecraftVersion,
+      loader,
+      loader_version: loaderVersion,
+      public_host: publicIp,
+      port: p
+    },
+    launcher: {
+      display_name: name,
+      description: `Serveur ${name} propulsé par le réseau décentralisé Modey.`,
+      tags: ['Survie', 'Communauté'],
+      status: 'online'
+    },
+    visuals: {
+      banner_url: '',
+      icon_url: '',
+      screenshots: []
+    },
     network: {
       public_ip: publicIp,
-      port: Number(port) || 25565
+      port: p
     },
     auth: {
       api_url: apiUrl,

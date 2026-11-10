@@ -17,13 +17,20 @@ class ModeyApiClient {
    */
   async sendHeartbeat(payload) {
     const url = `${this.baseUrl}/api/nodes/heartbeat`;
+    const cleanPayload = {
+      ...payload,
+      slug: payload.slug || payload.server_slug,
+      server_slug: payload.server_slug || payload.slug,
+      token: payload.token || this.nodeToken,
+      node_token: payload.node_token || this.nodeToken
+    };
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(this.nodeToken ? { 'x-node-token': this.nodeToken } : {})
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(cleanPayload)
     });
 
     const data = await res.json().catch(() => ({}));
@@ -45,9 +52,15 @@ class ModeyApiClient {
         ...(this.nodeToken ? { 'x-node-token': this.nodeToken } : {})
       },
       body: JSON.stringify({
+        slug: serverSlug,
         server_slug: serverSlug,
+        token: this.nodeToken,
         node_token: this.nodeToken,
-        manifest
+        manifest: {
+          ...manifest,
+          id: serverSlug,
+          slug: serverSlug
+        }
       })
     });
 

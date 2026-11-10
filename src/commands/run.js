@@ -36,7 +36,10 @@ async function runCommand(args = {}) {
   const sendTick = async (overrideStatus = null) => {
     try {
       const mem = getSystemMemory();
-      const ping = await pingMinecraftServer('127.0.0.1', port, 2500);
+      let ping = await pingMinecraftServer('127.0.0.1', port, 2500);
+      if (!ping.online && publicIp && publicIp !== '127.0.0.1' && publicIp !== 'localhost') {
+        ping = await pingMinecraftServer(publicIp, port, 2500);
+      }
 
       const status = overrideStatus || (ping.online ? 'online' : 'starting');
 

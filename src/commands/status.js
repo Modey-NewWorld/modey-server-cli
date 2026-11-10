@@ -22,33 +22,35 @@ async function statusCommand(args = {}) {
   const client = new ModeyApiClient(apiUrl);
   const data = await client.getStatus(slug);
 
-  if (!data.success) {
+  if (data.error || !data.slug) {
     logger.error('Erreur :', data.error || 'Serveur introuvable.');
     return;
   }
 
-  const { server, heartbeat } = data;
-  console.log(`  Nom affiché     : ${bold(server.name)} (${server.slug})`);
-  console.log(`  Statut Central  : ${server.isOnline ? green('● EN LIGNE') : red('○ HORS LIGNE')}`);
-  console.log(`  Version MC      : ${server.minecraftVersion || 'Inconnue'} (${server.loader || 'Vanilla'} ${server.loaderVersion || ''})`);
+  const isOnline = String(data.status).toUpperCase() === 'ONLINE' || data.isOnline === true;
+  console.log(`  Nom affiché     : ${bold(data.name || data.slug)} (${data.slug})`);
+  console.log(`  Statut Central  : ${isOnline ? green('● EN LIGNE') : red('○ HORS LIGNE')}`);
+  console.log(`  Version MC      : ${data.mcVersion || data.minecraftVersion || '1.21.1'} (${data.loaderType || data.loader || 'NeoForge'} ${data.loaderVersion || ''})`);
   
   // Badges
   const badges = [];
-  if (server.isOfficial) badges.push(yellow('🏆 Officiel Modey'));
-  if (server.isVerified) badges.push(cyan('🛡️ Partenaire Vérifié'));
-  if (server.enforceHashIntegrity) badges.push(green('🔒 Protégé (Launch Guard)'));
+  if (data.isOfficial) badges.push(yellow('🏆 Officiel Modey'));
+  if (data.isVerified) badges.push(cyan('🛡️ Partenaire Vérifié'));
+  if (data.enforceHashIntegrity) badges.push(green('🔒 Protégé (Launch Guard)'));
   if (badges.length > 0) {
     console.log(`  Certifications  : ${badges.join('  ')}`);
   }
 
-  if (heartbeat) {
-    console.log(gray('  ─'.repeat(25)));
-    console.log(`  Joueurs en ligne: ${bold(heartbeat.players_online)} / ${heartbeat.players_max}`);
-    console.log(`  TPS             : ${heartbeat.tps >= 19 ? green(heartbeat.tps) : yellow(heartbeat.tps)}`);
-    console.log(`  RAM Utilisée    : ${heartbeat.ram_used_mb} Mo / ${heartbeat.ram_total_mb} Mo`);
-    console.log(`  Dernier battement: ${new Date(heartbeat.last_heartbeat).toLocaleString()} ${server.isOnline ? green('(Actif)') : yellow('(Expiré)')}`);
+  console.log(gray('  ─'.repeat(25)));
+  console.log(`  Joueurs en ligne: ${bold(data.playersOnline || 0)} / ${data.playersMax || 20}`);
+  console.log(`  TPS             : ${(data.tps || 20) >= 19 ? green(data.tps || 20) : yellow(data.tps || 20)}`);
+  if (data.ramUsedMb) {
+    console.log(`  RAM Utilisée    : ${data.ramUsedMb} Mo / ${data.ramTotalMb || 0} Mo`);
+  }
+  if (data.lastHeartbeat) {
+    console.log(`  Dernier battement: ${new Date(data.lastHeartbeat).toLocaleString()} ${isOnline ? green('(Actif)') : yellow('(Expiré)')}`);
   } else {
-    console.log(gray('\n  Aucun battement de cœur (heartbeat) n\'a encore été reçu pour ce nœud.'));
+    console.log(gray('  Aucun battement de cœur (heartbeat) récent enregistré.'));
   }
   console.log('');
 }
