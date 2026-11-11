@@ -102,10 +102,28 @@ function resolveJavaLaunchSpec(serverDir, config = {}, platform = process.platfo
 }
 
 /**
+ * Supprime les scripts générés par NeoForge/Forge (run.bat, run.sh) qui court-circuitent Modey CLI et SSO.
+ */
+async function cleanupLegacyStartScripts(serverDir = process.cwd()) {
+  const removed = [];
+  for (const fname of ['run.bat', 'run.sh']) {
+    const target = path.resolve(serverDir, fname);
+    if (fs.existsSync(target)) {
+      await fsp.unlink(target).catch(() => {});
+      if (!fs.existsSync(target)) removed.push(fname);
+    }
+  }
+  return removed;
+}
+
+/**
  * Génère les scripts de démarrage clés en main start.bat (Windows) et start.sh (Linux/macOS)
  * permettant de lancer le serveur Minecraft + Files-Updater sans Docker.
  */
-async function generateStartScripts(serverDir = process.cwd(), { overwrite = false } = {}) {
+async function generateStartScripts(serverDir = process.cwd(), { overwrite = false, cleanupLegacy = true } = {}) {
+  if (cleanupLegacy) {
+    await cleanupLegacyStartScripts(serverDir);
+  }
   const batPath = path.resolve(serverDir, 'start.bat');
   const shPath = path.resolve(serverDir, 'start.sh');
 
@@ -158,5 +176,6 @@ async function generateStartScripts(serverDir = process.cwd(), { overwrite = fal
 module.exports = {
   findModLoaderArgsFile,
   resolveJavaLaunchSpec,
-  generateStartScripts
+  generateStartScripts,
+  cleanupLegacyStartScripts
 };

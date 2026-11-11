@@ -132,11 +132,16 @@ test('Runtime: resolveJavaLaunchSpec détecte NeoForge (win_args/unix_args) et s
   }
 });
 
-test('Runtime: generateStartScripts génère start.bat et start.sh sans Docker', async () => {
+test('Runtime: generateStartScripts génère start.bat et start.sh sans Docker et supprime run.bat/run.sh', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'modey-scripts-'));
   try {
+    await fs.writeFile(path.join(tmpDir, 'run.bat'), '@echo neoforge');
+    await fs.writeFile(path.join(tmpDir, 'run.sh'), '#!/bin/sh\nneoforge');
     const created = await generateStartScripts(tmpDir);
     assert.deepEqual(created.sort(), ['start.bat', 'start.sh']);
+    const files = await fs.readdir(tmpDir);
+    assert.equal(files.includes('run.bat'), false);
+    assert.equal(files.includes('run.sh'), false);
     const bat = await fs.readFile(path.join(tmpDir, 'start.bat'), 'utf-8');
     const sh = await fs.readFile(path.join(tmpDir, 'start.sh'), 'utf-8');
     assert.match(bat, /call modey-server run/);
