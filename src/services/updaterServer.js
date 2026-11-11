@@ -7,6 +7,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { resolveEffectiveClientConfig } = require('../config.js');
 
 const sha1Cache = new Map(); // fullPath -> { size, mtimeMs, sha1 }
 
@@ -82,11 +83,32 @@ function scanDirectory(baseDir, currentRel, baseUrl, urlPrefix = '') {
 
 function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server', serverMeta = null) {
   const cleanBase = String(publicBaseUrl || '').replace(/\/+$/, '');
+  const hasModsInMeta = Boolean(serverMeta?.hasClientMods);
+  const defaultSlots = hasModsInMeta
+    ? ['mods', 'config', 'shaderpacks', 'resourcepacks', 'saves', 'defaultconfigs', 'optional-mods']
+    : ['shaderpacks', 'resourcepacks', 'saves'];
+  const defaultFolders = hasModsInMeta
+    ? ['mods', 'config', 'shaderpacks', 'resourcepacks', 'saves', 'defaultconfigs']
+    : ['shaderpacks', 'resourcepacks', 'saves'];
+
+  const metaFields = serverMeta ? {
+    ...(serverMeta.minecraftVersion ? { minecraftVersion: serverMeta.minecraftVersion } : {}),
+    ...(serverMeta.loader ? { loader: serverMeta.loader } : {}),
+    ...(serverMeta.loaderVersion !== undefined ? { loaderVersion: serverMeta.loaderVersion } : {}),
+    ...(serverMeta.serverLoader ? { serverLoader: serverMeta.serverLoader } : {}),
+    ...(serverMeta.serverLoaderVersion !== undefined ? { serverLoaderVersion: serverMeta.serverLoaderVersion } : {}),
+    allowClientChoice: Boolean(serverMeta.allowClientChoice),
+    availableClientPresets: serverMeta.availableClientPresets || [],
+    defaultClientPreset: serverMeta.defaultClientPreset || 'vanilla',
+    hasClientMods: hasModsInMeta
+  } : {};
+
   const emptyManifest = {
     success: true,
     slug,
-    slots: ['mods', 'config', 'shaderpacks', 'resourcepacks', 'saves', 'defaultconfigs', 'optional-mods'],
-    defaultFolders: ['mods', 'config', 'shaderpacks', 'resourcepacks', 'saves', 'defaultconfigs'],
+    ...metaFields,
+    slots: defaultSlots,
+    defaultFolders,
     cleaningIgnored: [],
     count: 0,
     files: [],
@@ -155,13 +177,25 @@ function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server'
     }
   }
 
+  const hasMods = Boolean(serverMeta?.hasClientMods) ||
+    requiredFiles.some((f) => String(f.path || '').startsWith('mods') || f.subfolder === 'mods') ||
+    optionalMods.length > 0;
+
   return {
     success: true,
     slug,
     version: distConfig.version || '1.0.0',
     ...(serverMeta?.minecraftVersion ? { minecraftVersion: serverMeta.minecraftVersion } : {}),
     ...(serverMeta?.loader ? { loader: serverMeta.loader } : {}),
-    ...(serverMeta?.loaderVersion ? { loaderVersion: serverMeta.loaderVersion } : {}),
+    ...(serverMeta?.loaderVersion !== undefined ? { loaderVersion: serverMeta.loaderVersion } : {}),
+    ...(serverMeta?.serverLoader ? { serverLoader: serverMeta.serverLoader } : {}),
+    ...(serverMeta?.serverLoaderVersion !== undefined ? { serverLoaderVersion: serverMeta.serverLoaderVersion } : {}),
+    ...(serverMeta ? {
+      allowClientChoice: Boolean(serverMeta.allowClientChoice),
+      availableClientPresets: serverMeta.availableClientPresets || [],
+      defaultClientPreset: serverMeta.defaultClientPreset || 'vanilla',
+      hasClientMods: hasMods
+    } : {}),
     slots: emptyManifest.slots,
     defaultFolders: emptyManifest.defaultFolders,
     cleaningIgnored: Array.isArray(distConfig.cleaningIgnored) ? distConfig.cleaningIgnored : [],
@@ -271,6 +305,9 @@ function buildServerMetaPayload(serverDir, baseUrl, fallbackSlug = 'server') {
   const name = cfg.launcher?.display_name || cfg.identity?.name || cfg.name || slug;
   const visuals = resolveLocalVisualUrls(serverDir, baseUrl, cfg);
   const cleanBase = String(baseUrl || '').replace(/\/files-updater\/?$/i, '').replace(/\/+$/, '');
+  const serverLoader = cfg.game?.loader || cfg.identity?.loader || 'neoforge';
+  const serverLoaderVersion = cfg.game?.loader_version || cfg.identity?.loader_version || '';
+  const clientCfg = resolveEffectiveClientConfig(cfg);
 
   return {
     success: true,
@@ -279,8 +316,15 @@ function buildServerMetaPayload(serverDir, baseUrl, fallbackSlug = 'server') {
     description: cfg.launcher?.description || cfg.launcherOptions?.description || '',
     tags: Array.isArray(cfg.launcher?.tags) ? cfg.launcher.tags : (Array.isArray(cfg.launcherOptions?.tags) ? cfg.launcherOptions.tags : []),
     minecraftVersion: cfg.game?.minecraft_version || cfg.identity?.minecraft_version || '1.21.1',
-    loader: cfg.game?.loader || cfg.identity?.loader || 'neoforge',
-    loaderVersion: cfg.game?.loader_version || cfg.identity?.loader_version || '',
+    serverLoader,
+    serverLoaderVersion,
+    loader: clientCfg.loader,
+    loaderVersion: clientCfg.loader_version,
+    clientMode: clientCfg.mode,
+    allowClientChoice: Boolean(clientCfg.allow_client_choice),
+    availableClientPresets: Array.isArray(clientCfg.available_presets) ? clientCfg.available_presets : [],
+    defaultClientPreset: clientCfg.default_preset || 'vanilla',
+    hasClientMods: Boolean(clientCfg.has_mods),
     port: Number(cfg.game?.port || cfg.network?.port || 25565),
     motd: cfg.identity?.motd || '',
     bannerUrl: visuals.bannerUrl || '',

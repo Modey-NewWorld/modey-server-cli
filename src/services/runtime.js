@@ -51,8 +51,40 @@ function findModLoaderArgsFile(serverDir, { loader, loaderVersion, platform = pr
 }
 
 /**
+ * Résout l'exécutable Java à utiliser (priorité à .java/jre-<required> s'il existe, sinon java du PATH).
+ */
+function resolveJavaExecutable(serverDir, minecraftVersion = '1.21.1', platform = process.platform) {
+  const { getMinimumJavaVersionForMc } = require('./installer.js');
+  const reqMajor = getMinimumJavaVersionForMc(minecraftVersion);
+  const exeName = platform === 'win32' ? 'java.exe' : 'java';
+  const portableBin = path.join(serverDir, '.java', `jre-${reqMajor}`, 'bin', exeName);
+  if (fs.existsSync(portableBin)) {
+    return portableBin;
+  }
+  return 'java';
+}
+
+/**
+ * Recherche un exécutable JAR Forge legacy (< 1.17) dans la racine du serveur (ex: forge-1.12.2-14.23.5.2860.jar).
+ */
+function findLegacyForgeJar(serverDir) {
+  try {
+    const entries = fs.readdirSync(serverDir, { withFileTypes: true });
+    const match = entries.find((e) =>
+      e.isFile() &&
+      /^forge-.*\.jar$/i.test(e.name) &&
+      !/installer/i.test(e.name) &&
+      !/universal/i.test(e.name)
+    ) || entries.find((e) => e.isFile() && /^forge-.*-universal\.jar$/i.test(e.name));
+    return match ? match.name : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Détermine la commande Java et les arguments exacts pour lancer le serveur Minecraft
- * (supporte NeoForge/Forge moderne via @unix_args/@win_args ainsi que Paper/Fabric/Vanilla via -jar).
+ * (supporte NeoForge/Forge moderne via @unix_args/@win_args ainsi que Forge legacy, Paper, Fabric et Vanilla via -jar).
  */
 function resolveJavaLaunchSpec(serverDir, config = {}, platform = process.platform) {
   const javaArgs = Array.isArray(config.runtime?.java_args) && config.runtime.java_args.length > 0
@@ -60,6 +92,8 @@ function resolveJavaLaunchSpec(serverDir, config = {}, platform = process.platfo
     : ['-Xms2G', '-Xmx4G'];
   const loader = config.identity?.loader || '';
   const loaderVersion = config.identity?.loader_version || '';
+  const mcVersion = config.identity?.minecraft_version || config.game?.minecraft_version || '1.21.1';
+  const javaCommand = resolveJavaExecutable(serverDir, mcVersion, platform);
 
   const yggdrasilEnabled = config.auth?.yggdrasil_enabled !== false;
   const authlibJarPath = path.join(serverDir, 'authlib-injector.jar');
@@ -73,19 +107,26 @@ function resolveJavaLaunchSpec(serverDir, config = {}, platform = process.platfo
     const args = [...javaArgs, ...javaAgentArgs, `@${modLoaderArgsRel}`, 'nogui'];
     return {
       mode: 'args-file',
-      command: 'java',
+      command: javaCommand,
       args,
       target: modLoaderArgsRel,
       yggdrasilInjected: javaAgentArgs.length > 0,
-      displayCommand: `java ${args.join(' ')}`
+      displayCommand: `"${javaCommand}" ${args.join(' ')}`
     };
   }
 
-  const jarFile = config.runtime?.server_jar || 'server.jar';
-  const jarPath = path.resolve(serverDir, jarFile);
+  let jarFile = config.runtime?.server_jar || 'server.jar';
+  let jarPath = path.resolve(serverDir, jarFile);
+  if (!fs.existsSync(jarPath) && String(loader).toLowerCase() === 'forge') {
+    const legacyForgeJar = findLegacyForgeJar(serverDir);
+    if (legacyForgeJar) {
+      jarFile = legacyForgeJar;
+      jarPath = path.resolve(serverDir, jarFile);
+    }
+  }
   if (!fs.existsSync(jarPath)) {
     throw new Error(
-      `Aucun exécutable serveur trouvé (${jarFile} ou args NeoForge). ` +
+      `Aucun exécutable serveur trouvé (${jarFile} ou args NeoForge/Forge). ` +
       'Exécutez d\'abord "modey-server install" dans ce dossier.'
     );
   }
@@ -93,11 +134,11 @@ function resolveJavaLaunchSpec(serverDir, config = {}, platform = process.platfo
   const args = [...javaArgs, ...javaAgentArgs, '-jar', jarFile, 'nogui'];
   return {
     mode: 'jar',
-    command: 'java',
+    command: javaCommand,
     args,
     target: jarFile,
     yggdrasilInjected: javaAgentArgs.length > 0,
-    displayCommand: `java ${args.join(' ')}`
+    displayCommand: `"${javaCommand}" ${args.join(' ')}`
   };
 }
 

@@ -41,6 +41,50 @@ async function saveConfig(config, dir = process.cwd()) {
   return filePath;
 }
 
+function isServerModdedLoader(loader) {
+  return ['neoforge', 'forge', 'fabric', 'quilt'].includes(String(loader || '').toLowerCase());
+}
+
+function resolveEffectiveClientConfig(config = {}) {
+  const serverLoader = String(config.game?.loader || config.identity?.loader || 'neoforge').toLowerCase();
+  const serverLoaderVersion = config.game?.loader_version || config.identity?.loader_version || '';
+  const rawClient = config.client || {};
+  const isModdedServer = isServerModdedLoader(serverLoader);
+
+  if (isModdedServer) {
+    return {
+      mode: rawClient.mode || 'mirror',
+      loader: serverLoader,
+      loader_version: serverLoaderVersion,
+      allow_client_choice: false,
+      available_presets: Array.isArray(rawClient.available_presets) ? rawClient.available_presets : [],
+      default_preset: rawClient.default_preset || serverLoader,
+      preset_slot: rawClient.preset_slot || 'optional',
+      has_mods: true
+    };
+  }
+
+  const mode = rawClient.mode || 'vanilla';
+  const rawLoader = String(rawClient.loader || '').toLowerCase();
+  const safeLoader = ['fabric', 'forge', 'neoforge', 'quilt', 'vanilla'].includes(rawLoader)
+    ? rawLoader
+    : 'vanilla';
+  const defaultPresets = ['vanilla', 'fabric-opti', 'fabric-shaders'];
+
+  return {
+    mode,
+    loader: mode === 'vanilla' ? 'vanilla' : safeLoader,
+    loader_version: mode === 'vanilla' ? '' : (rawClient.loader_version || ''),
+    allow_client_choice: Boolean(rawClient.allow_client_choice ?? (mode === 'choice')),
+    available_presets: Array.isArray(rawClient.available_presets) && rawClient.available_presets.length > 0
+      ? rawClient.available_presets
+      : (mode === 'choice' ? defaultPresets : []),
+    default_preset: rawClient.default_preset || (mode === 'preset' ? rawClient.default_preset || 'fabric-shaders' : 'vanilla'),
+    preset_slot: rawClient.preset_slot || 'required',
+    has_mods: Boolean(rawClient.has_mods ?? (mode === 'preset' || mode === 'custom'))
+  };
+}
+
 /**
  * Crée un squelette par défaut de configuration
  */
@@ -58,13 +102,30 @@ function createDefaultConfig({
   nodeToken = '',
   linked = false,
   standalone = false,
-  javaArgs = null
+  javaArgs = null,
+  updaterEnabled = undefined,
+  updaterPort = 3008,
+  client = null
 } = {}) {
   const p = Number(port) || 25565;
   const isStandalone = Boolean(standalone);
   const resolvedToken = isStandalone ? '' : (nodeToken || '');
+  const cleanServerLoader = String(loader || 'neoforge').toLowerCase();
+  const isModdedServer = isServerModdedLoader(cleanServerLoader);
+
+  const normalizedClient = resolveEffectiveClientConfig({
+    identity: { loader: cleanServerLoader, loader_version: loaderVersion },
+    client: client || (isModdedServer
+      ? { mode: 'mirror', loader: cleanServerLoader, loader_version: loaderVersion, allow_client_choice: false, has_mods: true }
+      : { mode: 'choice', loader: 'vanilla', loader_version: '', allow_client_choice: true, available_presets: ['vanilla', 'fabric-opti', 'fabric-shaders'], default_preset: 'vanilla', has_mods: false })
+  });
+
+  const effectiveUpdaterEnabled = updaterEnabled !== undefined
+    ? Boolean(updaterEnabled)
+    : (isModdedServer || normalizedClient.has_mods);
+
   return {
-    schema_version: '1.0',
+    schema_version: '1.1',
     id: slug,
     slug,
     name,
@@ -72,17 +133,18 @@ function createDefaultConfig({
       name,
       slug,
       minecraft_version: minecraftVersion,
-      loader,
+      loader: cleanServerLoader,
       loader_version: loaderVersion,
       motd: `Bienvenue sur ${name} (Modey Network)`
     },
     game: {
       minecraft_version: minecraftVersion,
-      loader,
+      loader: cleanServerLoader,
       loader_version: loaderVersion,
       public_host: publicIp,
       port: p
     },
+    client: normalizedClient,
     launcher: {
       display_name: name,
       description: `Serveur ${name} propulsé par le réseau décentralisé Modey.`,
@@ -107,8 +169,8 @@ function createDefaultConfig({
       node_token: resolvedToken
     },
     modpack: {
-      enabled: true,
-      updater_port: 3008,
+      enabled: effectiveUpdaterEnabled,
+      updater_port: Number(updaterPort) || 3008,
       public_updater_url: ''
     },
     launcherOptions: {
@@ -135,5 +197,7 @@ module.exports = {
   loadConfig,
   saveConfig,
   createDefaultConfig,
-  calculateFlowCache
+  calculateFlowCache,
+  isServerModdedLoader,
+  resolveEffectiveClientConfig
 };

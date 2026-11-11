@@ -9,11 +9,26 @@ const fs = require('fs/promises');
 const path = require('path');
 const os = require('os');
 const { parseArgs } = require('../src/index.js');
-const { createDefaultConfig, loadConfig, saveConfig, calculateFlowCache } = require('../src/config.js');
+const {
+  createDefaultConfig,
+  loadConfig,
+  saveConfig,
+  calculateFlowCache,
+  isServerModdedLoader,
+  resolveEffectiveClientConfig
+} = require('../src/config.js');
 const { ModeyApiClient } = require('../src/services/api.js');
 const { resolveJavaLaunchSpec, generateStartScripts } = require('../src/services/runtime.js');
 const { normalizeLoaderChoice, normalizeRamJavaArgs, slugifyName } = require('../src/commands/init.js');
-const { getNeoForgePrefixForMc, resolvePaperDownloadUrl, resolveAuthlibInjectorUrl } = require('../src/services/installer.js');
+const { getDirectoriesToPrepare } = require('../src/commands/install.js');
+const {
+  getNeoForgePrefixForMc,
+  getMinimumJavaVersionForMc,
+  validateAndResolveLoader,
+  resolvePaperDownloadUrl,
+  resolveAuthlibInjectorUrl
+} = require('../src/services/installer.js');
+const { buildServerMetaPayload, buildClientFilesManifest } = require('../src/services/updaterServer.js');
 const { formatMinecraftLine, fitVisible, stripAnsi, wrapLine, ServerTui } = require('../src/services/tui.js');
 
 test('CLI: parseArgs analyse correctement les arguments et flags', () => {
@@ -37,7 +52,7 @@ test('Config: createDefaultConfig produit un manifeste complet et valide', () =>
     port: 25580
   });
 
-  assert.equal(conf.schema_version, '1.0');
+  assert.equal(conf.schema_version, '1.1');
   assert.equal(conf.identity.name, 'Valkyrie SMP');
   assert.equal(conf.identity.slug, 'valkyrie-smp');
   assert.equal(conf.identity.loader, 'fabric');
@@ -153,18 +168,102 @@ test('Runtime: generateStartScripts génère start.bat et start.sh sans Docker e
   }
 });
 
-test('Wizard helpers: choix loader, RAM, slug et préfixe NeoForge', () => {
+test('Wizard helpers: choix loader (incl. Forge), RAM, slug et préfixe NeoForge', () => {
   assert.equal(normalizeLoaderChoice('1'), 'neoforge');
-  assert.equal(normalizeLoaderChoice('2'), 'fabric');
-  assert.equal(normalizeLoaderChoice('3'), 'paper');
-  assert.equal(normalizeLoaderChoice('4'), 'vanilla');
+  assert.equal(normalizeLoaderChoice('2'), 'forge');
+  assert.equal(normalizeLoaderChoice('3'), 'fabric');
+  assert.equal(normalizeLoaderChoice('4'), 'paper');
+  assert.equal(normalizeLoaderChoice('5'), 'vanilla');
   assert.equal(normalizeLoaderChoice('PaperMC'), 'paper');
+  assert.equal(normalizeLoaderChoice('Forge'), 'forge');
 
   assert.deepEqual(normalizeRamJavaArgs('6'), ['-Xms1G', '-Xmx6G']);
   assert.deepEqual(normalizeRamJavaArgs('4G'), ['-Xms1G', '-Xmx4G']);
   assert.equal(slugifyName('Mon Serveur Athéna !'), 'mon-serveur-athena');
   assert.equal(getNeoForgePrefixForMc('1.21.1'), '21.1.');
   assert.equal(getNeoForgePrefixForMc('1.21'), '21.0.');
+  assert.equal(getNeoForgePrefixForMc('1.20.1'), '47.1.');
+});
+
+test('Java & Loader compatibility: validation stricte par version Minecraft', async () => {
+  assert.equal(getMinimumJavaVersionForMc('1.12.2'), 8);
+  assert.equal(getMinimumJavaVersionForMc('1.16.5'), 8);
+  assert.equal(getMinimumJavaVersionForMc('1.19.4'), 17);
+  assert.equal(getMinimumJavaVersionForMc('1.20.4'), 17);
+  assert.equal(getMinimumJavaVersionForMc('1.20.5'), 21);
+  assert.equal(getMinimumJavaVersionForMc('1.21.1'), 21);
+
+  const rejected = await validateAndResolveLoader('neoforge', '1.16.5');
+  assert.equal(rejected.valid, false);
+  assert.match(rejected.reason, /NeoForge/);
+});
+
+test('Config & Install: séparation serveur/client et suppression mods/ inutile sur Vanilla/Paper', () => {
+  assert.equal(isServerModdedLoader('neoforge'), true);
+  assert.equal(isServerModdedLoader('forge'), true);
+  assert.equal(isServerModdedLoader('fabric'), true);
+  assert.equal(isServerModdedLoader('paper'), false);
+  assert.equal(isServerModdedLoader('vanilla'), false);
+
+  const paperChoiceConf = createDefaultConfig({
+    slug: 'hub-paper',
+    minecraftVersion: '1.21.1',
+    loader: 'paper',
+    client: {
+      mode: 'choice',
+      loader: 'vanilla',
+      allow_client_choice: true,
+      available_presets: ['vanilla', 'fabric-opti', 'fabric-shaders'],
+      default_preset: 'fabric-opti',
+      has_mods: false
+    }
+  });
+  const effective = resolveEffectiveClientConfig(paperChoiceConf);
+  assert.equal(effective.loader, 'vanilla');
+  assert.equal(effective.allow_client_choice, true);
+  assert.equal(effective.has_mods, false);
+
+  const paperDirs = getDirectoriesToPrepare('paper', effective, true);
+  assert.ok(paperDirs.includes('plugins'));
+  assert.equal(paperDirs.includes('mods'), false);
+  assert.equal(paperDirs.includes('client-files/required/mods'), false);
+
+  const vanillaNoUpdater = getDirectoriesToPrepare('vanilla', { has_mods: false }, false);
+  assert.deepEqual(vanillaNoUpdater, []);
+});
+
+test('UpdaterServer: /server-meta et /files-updater exposent clientConfig sans créer mods/ sur un serveur Vanilla', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'modey-updater-meta-'));
+  try {
+    const conf = createDefaultConfig({
+      name: 'Pure Vanilla',
+      slug: 'pure-vanilla',
+      minecraftVersion: '1.21.1',
+      loader: 'vanilla',
+      client: {
+        mode: 'choice',
+        loader: 'vanilla',
+        allow_client_choice: true,
+        available_presets: ['vanilla', 'fabric-opti', 'fabric-shaders'],
+        default_preset: 'vanilla',
+        has_mods: false
+      }
+    });
+    await saveConfig(conf, tmpDir);
+    const meta = buildServerMetaPayload(tmpDir, 'http://127.0.0.1:3008', 'pure-vanilla');
+    assert.equal(meta.serverLoader, 'vanilla');
+    assert.equal(meta.loader, 'vanilla');
+    assert.equal(meta.allowClientChoice, true);
+    assert.deepEqual(meta.availableClientPresets, ['vanilla', 'fabric-opti', 'fabric-shaders']);
+    assert.equal(meta.hasClientMods, false);
+
+    const manifest = buildClientFilesManifest(path.join(tmpDir, 'client-files'), 'http://127.0.0.1:3008', 'pure-vanilla', meta);
+    assert.equal(manifest.allowClientChoice, true);
+    assert.equal(manifest.slots.includes('mods'), false);
+    assert.equal(manifest.defaultFolders.includes('mods'), false);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
 });
 
 test('Installer: resolvePaperDownloadUrl supporte le format PaperMC Fill API v3', async () => {

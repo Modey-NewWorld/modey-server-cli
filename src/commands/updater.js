@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { loadConfig } = require('../config.js');
+const { loadConfig, resolveEffectiveClientConfig } = require('../config.js');
 const { startUpdaterServer } = require('../services/updaterServer.js');
 const logger = require('../utils/logger.js');
 const { bold, cyan, green, yellow } = require('../utils/colors.js');
@@ -16,12 +16,19 @@ async function updaterCommand(args = {}) {
   const slug = args.slug || config?.identity?.slug || config?.slug || 'server';
   const port = Number(args.port || config?.modpack?.updater_port || 3008);
   const publicUrl = args.publicUrl || config?.modpack?.public_updater_url || '';
+  const clientCfg = resolveEffectiveClientConfig(config || {});
 
   const clientDir = path.resolve(process.cwd(), 'client-files');
   if (!fs.existsSync(clientDir)) {
-    fs.mkdirSync(path.join(clientDir, 'required', 'mods'), { recursive: true });
-    fs.mkdirSync(path.join(clientDir, 'optional', 'mods'), { recursive: true });
-    logger.info(`Dossier ${cyan('client-files/required')} et ${cyan('client-files/optional')} créés automatiquement.`);
+    if (clientCfg.has_mods) {
+      fs.mkdirSync(path.join(clientDir, 'required', 'mods'), { recursive: true });
+      fs.mkdirSync(path.join(clientDir, 'optional', 'mods'), { recursive: true });
+      logger.info(`Dossier ${cyan('client-files/required')} et ${cyan('client-files/optional')} créés automatiquement.`);
+    } else {
+      fs.mkdirSync(path.join(clientDir, 'optional', 'shaderpacks'), { recursive: true });
+      fs.mkdirSync(path.join(clientDir, 'optional', 'resourcepacks'), { recursive: true });
+      logger.info(`Dossier ${cyan('client-files/optional')} (shaderpacks/resourcepacks) créé sans dossier mods/ inutile.`);
+    }
   }
 
   const instance = await startUpdaterServer({

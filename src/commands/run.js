@@ -120,7 +120,6 @@ async function runCommand(args = {}) {
   let didSyncMetadata = false;
 
   const sendTick = async (overrideStatus = null) => {
-    if (!client) return;
     try {
       const mem = getSystemMemory();
       let ping = await pingMinecraftServer('127.0.0.1', port, 2500);
@@ -129,6 +128,19 @@ async function runCommand(args = {}) {
       }
 
       const status = overrideStatus ? String(overrideStatus).toUpperCase() : (ping.online ? 'ONLINE' : 'STARTING');
+      const isOnlineNow = status === 'ONLINE';
+
+      if (tui) {
+        tui.updateState({
+          status: isOnlineNow ? 'online' : 'starting',
+          playersOnline: ping.playersOnline || 0,
+          playersMax: ping.playersMax || 20,
+          ramUsedMb: mem.usedMb || 0
+        });
+      }
+
+      if (!client) return;
+
       const heartbeatData = {
         server_slug: slug,
         name: serverName,
@@ -189,7 +201,7 @@ async function runCommand(args = {}) {
 
       if (tui) {
         tui.updateState({
-          status: status === 'online' ? 'online' : 'starting',
+          status: isOnlineNow ? 'online' : 'starting',
           playersOnline: ping.playersOnline || 0,
           playersMax: ping.playersMax || 20,
           ramUsedMb: mem.usedMb || 0,
@@ -197,7 +209,7 @@ async function runCommand(args = {}) {
         });
       } else {
         logger.info(
-          `Heartbeat envoyé [${status === 'online' ? green('ONLINE') : yellow(status.toUpperCase())}] · ` +
+          `Heartbeat envoyé [${isOnlineNow ? green('ONLINE') : yellow(status)}] · ` +
           `Joueurs: ${ping.playersOnline}/${ping.playersMax} · RAM: ${mem.usedMb}Mo`
         );
       }
@@ -329,7 +341,14 @@ async function runCommand(args = {}) {
   });
 
   if (useTui) {
-    pipeLines(serverProc.stdout, (line) => tui.logMinecraft(line));
+    let triggeredDoneTick = false;
+    pipeLines(serverProc.stdout, (line) => {
+      tui.logMinecraft(line);
+      if (!triggeredDoneTick && /Done \([^)]+\)!/i.test(line)) {
+        triggeredDoneTick = true;
+        setTimeout(() => { void sendTick(); }, 400);
+      }
+    });
     pipeLines(serverProc.stderr, (line) => tui.logMinecraft(line));
   }
 
@@ -345,9 +364,9 @@ async function runCommand(args = {}) {
 
   logger.success('Processus serveur lancé (PID: ' + (serverProc.pid || 'en cours') + ')');
 
-  // Premier heartbeat 'starting' puis toutes les 30s
+  // Premier tick 'starting' puis toutes les 30s (même en standalone pour le TUI)
   await sendTick('starting');
-  heartbeatTimer = client ? setInterval(sendTick, HEARTBEAT_INTERVAL_MS) : null;
+  heartbeatTimer = setInterval(sendTick, HEARTBEAT_INTERVAL_MS);
 
   process.on('SIGINT', async () => {
     await shutdown();
