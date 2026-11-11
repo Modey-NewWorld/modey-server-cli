@@ -13,7 +13,8 @@ const { createDefaultConfig, loadConfig, saveConfig, calculateFlowCache } = requ
 const { ModeyApiClient } = require('../src/services/api.js');
 const { resolveJavaLaunchSpec, generateStartScripts } = require('../src/services/runtime.js');
 const { normalizeLoaderChoice, normalizeRamJavaArgs, slugifyName } = require('../src/commands/init.js');
-const { getNeoForgePrefixForMc, resolvePaperDownloadUrl } = require('../src/services/installer.js');
+const { getNeoForgePrefixForMc, resolvePaperDownloadUrl, resolveAuthlibInjectorUrl } = require('../src/services/installer.js');
+const { formatMinecraftLine, fitVisible, stripAnsi } = require('../src/services/tui.js');
 
 test('CLI: parseArgs analyse correctement les arguments et flags', () => {
   const args = ['init', '--slug', 'valkyrie', '--port=25570', '--non-interactive', '-v'];
@@ -179,4 +180,30 @@ test('Installer: resolvePaperDownloadUrl supporte le format PaperMC Fill API v3'
   } finally {
     globalThis.fetch = origFetch;
   }
+});
+
+test('Installer: resolveAuthlibInjectorUrl utilise latest.json officiel puis fallback GitHub', async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('yushi.moe')) {
+      return new Response(JSON.stringify({
+        version: '1.2.8',
+        download_url: 'https://authlib-injector.yushi.moe/artifact/56/authlib-injector-1.2.8.jar'
+      }), { status: 200 });
+    }
+    throw new Error('Unexpected URL ' + url);
+  };
+  try {
+    const url = await resolveAuthlibInjectorUrl();
+    assert.equal(url, 'https://authlib-injector.yushi.moe/artifact/56/authlib-injector-1.2.8.jar');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('TUI Helpers: formatMinecraftLine filtre le bruit JVM et fitVisible ajuste la largeur', () => {
+  assert.equal(formatMinecraftLine('WARNING: sun.misc.Unsafe::objectFieldOffset'), null);
+  assert.ok(stripAnsi(formatMinecraftLine('[12:00:00] [Server thread/INFO]: Done (4.2s)!')).includes('Done'));
+  const padded = fitVisible('Modey', 10);
+  assert.equal(stripAnsi(padded).length, 10);
 });

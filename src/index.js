@@ -124,7 +124,8 @@ async function main(argv = process.argv.slice(2)) {
     case 'run':
     case 'start':
       await runCommand({
-        daemonOnly: parsed['daemon-only']
+        daemonOnly: parsed['daemon-only'],
+        raw: Boolean(parsed.raw)
       });
       break;
 

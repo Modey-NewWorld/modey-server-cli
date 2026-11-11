@@ -9,7 +9,8 @@ const path = require('path');
 const { createWriteStream } = require('fs');
 const { pipeline } = require('stream/promises');
 
-const AUTHLIB_INJECTOR_URL = 'https://github.com/yushijinhun/authlib-injector/releases/latest/download/authlib-injector.jar';
+const AUTHLIB_LATEST_API_URL = 'https://authlib-injector.yushi.moe/artifact/latest.json';
+const AUTHLIB_GITHUB_API_URL = 'https://api.github.com/repos/yushijinhun/authlib-injector/releases/latest';
 
 /**
  * Télécharge un fichier depuis une URL vers un chemin local avec stream
@@ -26,6 +27,33 @@ async function downloadFile(url, destPath) {
 }
 
 /**
+ * Résout l'URL de téléchargement officielle de authlib-injector (API officielle + fallback GitHub Releases)
+ */
+async function resolveAuthlibInjectorUrl() {
+  try {
+    const res = await fetch(AUTHLIB_LATEST_API_URL, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.download_url) return data.download_url;
+    }
+  } catch {}
+
+  const ghRes = await fetch(AUTHLIB_GITHUB_API_URL, {
+    headers: { 'User-Agent': 'ModeyServerCLI/1.3' },
+    signal: AbortSignal.timeout(5000)
+  });
+  if (ghRes.ok) {
+    const ghData = await ghRes.json();
+    const asset = Array.isArray(ghData?.assets)
+      ? ghData.assets.find((a) => String(a.name || '').endsWith('.jar'))
+      : null;
+    if (asset?.browser_download_url) return asset.browser_download_url;
+  }
+
+  throw new Error('Impossible de résoudre l\'URL de téléchargement authlib-injector.');
+}
+
+/**
  * Télécharge authlib-injector.jar si absent afin de permettre l'authentification Modey Yggdrasil SSO
  */
 async function ensureAuthlibInjector(dir = process.cwd(), { force = false } = {}) {
@@ -33,11 +61,16 @@ async function ensureAuthlibInjector(dir = process.cwd(), { force = false } = {}
   if (!force && fsSync.existsSync(jarPath)) {
     try {
       const stat = fsSync.statSync(jarPath);
-      if (stat.size > 10 * 1024) return { path: jarPath, downloaded: false };
+      if (stat.size > 50 * 1024) return { path: jarPath, downloaded: false };
     } catch {}
   }
-  await downloadFile(AUTHLIB_INJECTOR_URL, jarPath);
-  return { path: jarPath, downloaded: true };
+  const url = await resolveAuthlibInjectorUrl();
+  await downloadFile(url, jarPath);
+  const stat = fsSync.statSync(jarPath);
+  if (stat.size < 50 * 1024) {
+    throw new Error('Fichier authlib-injector.jar téléchargé invalide ou incomplet.');
+  }
+  return { path: jarPath, downloaded: true, url };
 }
 
 /**
@@ -164,8 +197,10 @@ function resolveNeoForgeInstallerUrl(loaderVersion = '21.1.265') {
 }
 
 module.exports = {
-  AUTHLIB_INJECTOR_URL,
+  AUTHLIB_LATEST_API_URL,
+  AUTHLIB_GITHUB_API_URL,
   downloadFile,
+  resolveAuthlibInjectorUrl,
   ensureAuthlibInjector,
   acceptEula,
   resolvePaperDownloadUrl,

@@ -31,6 +31,7 @@ ${bold('OPTIONS GLOBALES & PAR COMMANDE :')}
   ${yellow('--api-url <url>')}        URL de l'API centrale Modey (défaut: https://api.modey.flowcrea.fr)
   ${yellow('--token <jeton>')}        Jeton de sécurité du nœud (node_token)
   ${yellow('--standalone')}           Mode privé/local sans connexion API centrale
+  ${yellow('--raw')}                  (Avec run) Désactive l'interface CMD et affiche les logs bruts
   ${yellow('--daemon-only')}          (Avec run) Exécute uniquement l'émetteur de télémétrie sans lancer Java
   ${yellow('--non-interactive')}      Génère la configuration sans poser de questions
 
