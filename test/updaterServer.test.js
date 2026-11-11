@@ -6,6 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const http = require('node:http');
 const { buildClientFilesManifest, startUpdaterServer } = require('../src/services/updaterServer.js');
+const { hashAccessPassword } = require('../src/config.js');
 
 test('buildClientFilesManifest scanne required et optional avec hash SHA-1', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modey-updater-'));
@@ -176,6 +177,86 @@ test('Security hardening: port 3008 bloque méthodes écriture, dotfiles, null-b
     assert.equal(jarResp.status, 200);
     assert.equal(jarResp.headers.get('x-content-type-options'), 'nosniff');
     assert.match(jarResp.headers.get('content-security-policy') || '', /sandbox/);
+  } finally {
+    await srv.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Private password protection: /server-meta masque les détails, /files-updater et /files/* bloquent sans mot de passe puis déverrouillent avec ?token=', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modey-updater-pwd-'));
+  const reqDir = path.join(tmpDir, 'client-files', 'required', 'mods');
+  fs.mkdirSync(reqDir, { recursive: true });
+  fs.writeFileSync(path.join(reqDir, 'secret-mod.jar'), 'modpayload');
+  const pngTiny = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  fs.writeFileSync(path.join(tmpDir, 'banner.png'), pngTiny);
+
+  const writeConfig = (pwd, version) => {
+    fs.writeFileSync(path.join(tmpDir, 'modey-server.json'), JSON.stringify({
+      identity: { slug: 'priv-srv', name: 'Serveur Privé Test', loader: 'fabric', minecraft_version: '1.21.1' },
+      launcher: { display_name: 'Serveur Privé Test', description: 'Secret desc' },
+      auth: {
+        standalone: true,
+        require_password: true,
+        private_password_hash: hashAccessPassword(pwd),
+        private_password_version: version
+      }
+    }));
+  };
+  writeConfig('pass1234', 'ver-1');
+
+  const srv = await startUpdaterServer({ serverDir: tmpDir, port: 0, host: '127.0.0.1', slug: 'priv-srv' });
+  try {
+    // 1. /server-meta sans mdp -> payload minimal verrouillé
+    const lockedMeta = await (await fetch(`http://127.0.0.1:${srv.port}/server-meta`)).json();
+    assert.equal(lockedMeta.requiresPassword, true);
+    assert.equal(lockedMeta.unlocked, false);
+    assert.equal(lockedMeta.passwordVersion, 'ver-1');
+    assert.equal(lockedMeta.name, 'Serveur Privé Test');
+    assert.equal(lockedMeta.description, undefined);
+    assert.equal(lockedMeta.bannerUrl, undefined);
+
+    // 2. /files-updater et /files/* sans mdp -> 401
+    assert.equal((await fetch(`http://127.0.0.1:${srv.port}/files-updater`)).status, 401);
+    assert.equal((await fetch(`http://127.0.0.1:${srv.port}/files/required/mods/secret-mod.jar`)).status, 401);
+    assert.equal((await fetch(`http://127.0.0.1:${srv.port}/assets/banner`)).status, 401);
+
+    // 3. Mauvais mdp -> toujours verrouillé / 401
+    assert.equal((await fetch(`http://127.0.0.1:${srv.port}/files-updater`, {
+      headers: { 'X-Modey-Server-Password': 'wrong' }
+    })).status, 401);
+
+    // 4. Bon mdp -> déverrouillé + manifest signé ?token=
+    const unlockedMeta = await (await fetch(`http://127.0.0.1:${srv.port}/server-meta`, {
+      headers: { 'X-Modey-Server-Password': 'pass1234' }
+    })).json();
+    assert.equal(unlockedMeta.unlocked, true);
+    assert.equal(unlockedMeta.description, 'Secret desc');
+    assert.match(unlockedMeta.bannerUrl, /\?token=/);
+
+    const manifestRes = await fetch(`http://127.0.0.1:${srv.port}/files-updater`, {
+      headers: { 'X-Modey-Server-Password': 'pass1234' }
+    });
+    assert.equal(manifestRes.status, 200);
+    const manifest = await manifestRes.json();
+    assert.equal(manifest.files.length, 1);
+    assert.match(manifest.files[0].url, /\?token=/);
+
+    // 5. Téléchargement direct via URL signée ?token= sans header (compat eml-lib / <img>)
+    const fileRes = await fetch(manifest.files[0].url);
+    assert.equal(fileRes.status, 200);
+    assert.equal(await fileRes.text(), 'modpayload');
+    const bannerRes = await fetch(unlockedMeta.bannerUrl);
+    assert.equal(bannerRes.status, 200);
+
+    // 6. Rotation de mot de passe -> ancien ?token= immédiatement invalidé, nouvelle version exposée
+    writeConfig('newpass99', 'ver-2');
+    assert.equal((await fetch(manifest.files[0].url)).status, 401);
+    const rotatedMeta = await (await fetch(`http://127.0.0.1:${srv.port}/server-meta`, {
+      headers: { 'X-Modey-Server-Password': 'pass1234' }
+    })).json();
+    assert.equal(rotatedMeta.unlocked, false);
+    assert.equal(rotatedMeta.passwordVersion, 'ver-2');
   } finally {
     await srv.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -15,7 +15,10 @@ const {
   saveConfig,
   calculateFlowCache,
   isServerModdedLoader,
-  resolveEffectiveClientConfig
+  resolveEffectiveClientConfig,
+  hashAccessPassword,
+  verifyAccessPassword,
+  generatePasswordVersion
 } = require('../src/config.js');
 const { ModeyApiClient } = require('../src/services/api.js');
 const { resolveJavaLaunchSpec, generateStartScripts } = require('../src/services/runtime.js');
@@ -59,7 +62,8 @@ test('Config: createDefaultConfig produit un manifeste complet et valide', () =>
   assert.equal(conf.network.port, 25580);
   assert.equal(conf.auth.api_url, 'https://api.modey.flowcrea.fr');
   assert.equal(typeof conf.launcherOptions, 'object');
-  assert.equal(conf.launcherOptions.account_policy, 'modey');
+  assert.equal(conf.launcherOptions.account_policy, 'microsoft_required');
+  assert.equal(conf.auth.requires_minecraft, true);
 });
 
 test('Config: loadConfig et saveConfig gèrent correctement les fichiers JSON', async () => {
@@ -327,4 +331,24 @@ test('TUI Helpers: wrapLine et ServerTui adaptent le prompt " > " et le logo ASC
   const narrowHeader = tui.buildHeaderLines(60, 15).map(stripAnsi).join('\n');
   assert.equal(narrowHeader.includes('Dedicated Node Engine'), false);
   assert.ok(narrowHeader.includes('TestNode (test-node)'));
+});
+
+test('Security: hashAccessPassword, verifyAccessPassword et rotation private_password_version', () => {
+  const hash = hashAccessPassword('secret1234');
+  assert.ok(hash.startsWith('scrypt$'));
+  assert.equal(verifyAccessPassword('secret1234', hash), true);
+  assert.equal(verifyAccessPassword('wrongpass', hash), false);
+
+  const v1 = generatePasswordVersion();
+  const v2 = generatePasswordVersion();
+  assert.ok(v1 && v2 && v1 !== v2);
+
+  const conf = createDefaultConfig({
+    slug: 'private-test',
+    standalone: true,
+    privatePassword: 'mon-mdp-prive'
+  });
+  assert.equal(conf.auth.require_password, true);
+  assert.equal(verifyAccessPassword('mon-mdp-prive', conf.auth.private_password_hash), true);
+  assert.ok(conf.auth.private_password_version);
 });

@@ -16,6 +16,7 @@ ${bold('COMMANDES DISPONIBLES :')}
   ${cyan('install')}   Installe le serveur (lance la config si modey-server.json absent)
   ${cyan('init')}      Génère ou met à jour uniquement modey-server.json
   ${cyan('link')}      Confirme la liaison avec Modey via un jeton (ex: modey-server link <token>)
+  ${cyan('password')}  Définit ou modifie le mot de passe d'accès privé (rotatif)
   ${cyan('update')}    Met à jour le CLI, authlib-injector et les scripts de démarrage
   ${cyan('sync')}      Synchronise le manifeste local avec l'API centrale Modey (optionnel)
   ${cyan('run')}       Lance le serveur Minecraft, Files-Updater et la télémétrie
@@ -31,6 +32,7 @@ ${bold('OPTIONS GLOBALES & PAR COMMANDE :')}
   ${yellow('--api-url <url>')}        URL de l'API centrale Modey (défaut: https://api.modey.flowcrea.fr)
   ${yellow('--token <jeton>')}        Jeton de sécurité du nœud (node_token)
   ${yellow('--standalone')}           Mode privé/local sans connexion API centrale
+  ${yellow('--password <mdp>')}       Mot de passe d'accès (obligatoire en mode privé/standalone)
   ${yellow('--raw')}                  (Avec run) Désactive l'interface CMD et affiche les logs bruts
   ${yellow('--daemon-only')}          (Avec run) Exécute uniquement l'émetteur de télémétrie sans lancer Java
   ${yellow('--non-interactive')}      Génère la configuration sans poser de questions

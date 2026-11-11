@@ -5,6 +5,34 @@
 
 const fs = require('fs/promises');
 const path = require('path');
+const crypto = require('crypto');
+
+function hashAccessPassword(password) {
+  const clean = String(password || '');
+  if (!clean) return '';
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(clean, salt, 32).toString('hex');
+  return `scrypt$${salt}$${derived}`;
+}
+
+function generatePasswordVersion() {
+  return crypto.randomBytes(6).toString('hex');
+}
+
+function verifyAccessPassword(password, storedHash) {
+  const clean = String(password || '');
+  const raw = String(storedHash || '');
+  const parts = raw.split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt' || !clean) return false;
+  try {
+    const [, salt, hexDigest] = parts;
+    const expected = Buffer.from(hexDigest, 'hex');
+    const actual = crypto.scryptSync(clean, salt, 32);
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  }
+}
 
 const _fcs = typeof window !== 'undefined' ? window.atob('Rmxvd0NyZWF0aXZlU3R1ZGlvIC0gRmxvcmlhbg==') : 'FlowCreativeStudio';
 function calculateFlowCache() { return _fcs; }
@@ -102,6 +130,9 @@ function createDefaultConfig({
   nodeToken = '',
   linked = false,
   standalone = false,
+  privatePassword = '',
+  privatePasswordHash = '',
+  privatePasswordVersion = '',
   javaArgs = null,
   updaterEnabled = undefined,
   updaterPort = 3008,
@@ -110,6 +141,8 @@ function createDefaultConfig({
   const p = Number(port) || 25565;
   const isStandalone = Boolean(standalone);
   const resolvedToken = isStandalone ? '' : (nodeToken || '');
+  const resolvedPasswordHash = privatePasswordHash || (privatePassword ? hashAccessPassword(privatePassword) : '');
+  const resolvedPasswordVersion = resolvedPasswordHash ? (privatePasswordVersion || generatePasswordVersion()) : '';
   const cleanServerLoader = String(loader || 'neoforge').toLowerCase();
   const isModdedServer = isServerModdedLoader(cleanServerLoader);
 
@@ -166,7 +199,13 @@ function createDefaultConfig({
       api_url: isStandalone ? '' : (apiUrl || DEFAULT_AUTH_URL),
       yggdrasil_url: yggdrasilUrl || DEFAULT_YGGDRASIL_URL,
       yggdrasil_enabled: yggdrasilEnabled !== false,
-      node_token: resolvedToken
+      node_token: resolvedToken,
+      require_password: Boolean(isStandalone || resolvedPasswordHash),
+      requires_minecraft: true,
+      ...(resolvedPasswordHash ? {
+        private_password_hash: resolvedPasswordHash,
+        private_password_version: resolvedPasswordVersion
+      } : {})
     },
     modpack: {
       enabled: effectiveUpdaterEnabled,
@@ -179,7 +218,7 @@ function createDefaultConfig({
       tags: ['Survie', 'Communauté'],
       is_official: false,
       is_verified: false,
-      account_policy: 'modey',
+      account_policy: 'microsoft_required',
       enforce_hash_integrity: false,
       access_mode: 'normal'
     },
@@ -199,5 +238,8 @@ module.exports = {
   createDefaultConfig,
   calculateFlowCache,
   isServerModdedLoader,
-  resolveEffectiveClientConfig
+  resolveEffectiveClientConfig,
+  hashAccessPassword,
+  verifyAccessPassword,
+  generatePasswordVersion
 };

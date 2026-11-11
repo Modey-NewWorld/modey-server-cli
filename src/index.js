@@ -12,6 +12,7 @@ const { syncCommand } = require('./commands/sync.js');
 const { runCommand } = require('./commands/run.js');
 const { statusCommand } = require('./commands/status.js');
 const { updaterCommand } = require('./commands/updater.js');
+const { passwordCommand } = require('./commands/password.js');
 const { helpCommand } = require('./commands/help.js');
 const { loadConfig } = require('./config.js');
 const pkg = require('../package.json');
@@ -56,6 +57,9 @@ function extractInitOptions(parsed) {
     nodeToken: parsed.token,
     ram: parsed.ram,
     standalone: Boolean(parsed.standalone),
+    password: typeof (parsed.password || parsed['private-password']) === 'string'
+      ? String(parsed.password || parsed['private-password'])
+      : '',
     nonInteractive: Boolean(parsed['non-interactive']),
     force: Boolean(parsed.force)
   };
@@ -141,6 +145,12 @@ async function main(argv = process.argv.slice(2)) {
         slug: parsed.slug,
         port: parsed.port || parsed['updater-port'],
         publicUrl: parsed['public-url']
+      });
+      break;
+
+    case 'password':
+      await passwordCommand({
+        password: typeof (parsed.password || parsed._[1]) === 'string' ? (parsed.password || parsed._[1]) : ''
       });
       break;
 

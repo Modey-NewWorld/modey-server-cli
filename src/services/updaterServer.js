@@ -7,7 +7,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { resolveEffectiveClientConfig } = require('../config.js');
+const { resolveEffectiveClientConfig, verifyAccessPassword } = require('../config.js');
 
 const sha1Cache = new Map(); // fullPath -> { size, mtimeMs, sha1 }
 
@@ -82,7 +82,13 @@ function scanDirectory(baseDir, currentRel, baseUrl, urlPrefix = '') {
   return results;
 }
 
-function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server', serverMeta = null) {
+function appendQueryToken(url, token) {
+  if (!url || !token) return url;
+  const sep = String(url).includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
+function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server', serverMeta = null, { accessToken = '' } = {}) {
   const cleanBase = String(publicBaseUrl || '').replace(/\/+$/, '');
   const hasModsInMeta = Boolean(serverMeta?.hasClientMods);
   const defaultSlots = hasModsInMeta
@@ -147,7 +153,7 @@ function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server'
     path: `${category}/`,
     subfolder: category,
     fullRelPath: f.fullRelPath,
-    url: f.url,
+    url: appendQueryToken(f.url, accessToken),
     sha1: f.sha1,
     size: f.size,
     updatedAt: f.updatedAt
@@ -178,8 +184,12 @@ function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server'
     }
   }
 
+  const signedRequiredFiles = accessToken
+    ? requiredFiles.map((f) => ({ ...f, url: appendQueryToken(f.url, accessToken) }))
+    : requiredFiles;
+
   const hasMods = Boolean(serverMeta?.hasClientMods) ||
-    requiredFiles.some((f) => String(f.path || '').startsWith('mods') || f.subfolder === 'mods') ||
+    signedRequiredFiles.some((f) => String(f.path || '').startsWith('mods') || f.subfolder === 'mods') ||
     optionalMods.length > 0;
 
   return {
@@ -200,8 +210,8 @@ function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server'
     slots: emptyManifest.slots,
     defaultFolders: emptyManifest.defaultFolders,
     cleaningIgnored: Array.isArray(distConfig.cleaningIgnored) ? distConfig.cleaningIgnored : [],
-    count: requiredFiles.length,
-    files: requiredFiles,
+    count: signedRequiredFiles.length,
+    files: signedRequiredFiles,
     optional: {
       mods: optionalMods,
       shaderpacks: optionalShaders,
@@ -241,6 +251,75 @@ function readServerConfigSafe(serverDir) {
     }
   } catch (_) {}
   return null;
+}
+
+function resolveUpdaterAuthState(cfg = null) {
+  const passwordHash = String(cfg?.auth?.private_password_hash || '').trim();
+  const passwordVersion = String(cfg?.auth?.private_password_version || '').trim() || (passwordHash ? 'v1' : '');
+  return {
+    protected: Boolean(passwordHash),
+    passwordHash,
+    passwordVersion
+  };
+}
+
+function deriveTokenHmacKey(passwordHash, passwordVersion) {
+  return crypto.createHash('sha256').update(`modey-updater-token:${passwordHash}:${passwordVersion}`).digest();
+}
+
+function createAccessToken(passwordHash, passwordVersion, ttlMs = 3600 * 1000) {
+  if (!passwordHash) return '';
+  const exp = Date.now() + ttlMs;
+  const key = deriveTokenHmacKey(passwordHash, passwordVersion);
+  const sig = crypto.createHmac('sha256', key).update(String(exp)).digest('hex');
+  return `${exp}.${sig}`;
+}
+
+function verifyAccessToken(token, passwordHash, passwordVersion) {
+  if (!token || !passwordHash) return false;
+  const parts = String(token).split('.');
+  if (parts.length !== 2) return false;
+  const [expStr, sigHex] = parts;
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || exp <= Date.now()) return false;
+  if (!/^[a-f0-9]+$/i.test(sigHex)) return false;
+  const key = deriveTokenHmacKey(passwordHash, passwordVersion);
+  const expectedSig = crypto.createHmac('sha256', key).update(expStr).digest('hex');
+  const a = Buffer.from(sigHex, 'hex');
+  const b = Buffer.from(expectedSig, 'hex');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function isRequestAuthorized(req, urlObj, cfg, { allowQueryToken = false } = {}) {
+  const authState = resolveUpdaterAuthState(cfg);
+  if (!authState.protected) {
+    return { authorized: true, protected: false, authState, accessToken: '' };
+  }
+
+  const headerPwd = String(req?.headers?.['x-modey-server-password'] || '');
+  if (headerPwd && verifyAccessPassword(headerPwd, authState.passwordHash)) {
+    return {
+      authorized: true,
+      protected: true,
+      authState,
+      accessToken: createAccessToken(authState.passwordHash, authState.passwordVersion)
+    };
+  }
+
+  if (allowQueryToken && urlObj) {
+    const token = urlObj.searchParams.get('token') || '';
+    if (token && verifyAccessToken(token, authState.passwordHash, authState.passwordVersion)) {
+      return {
+        authorized: true,
+        protected: true,
+        authState,
+        accessToken: token
+      };
+    }
+  }
+
+  return { authorized: false, protected: true, authState, accessToken: '' };
 }
 
 function resolveVisualAssetFile(serverDir, kind, config = null) {
@@ -317,20 +396,40 @@ function resolveLocalVisualUrls(serverDir, baseUrl, config = null) {
   };
 }
 
-function buildServerMetaPayload(serverDir, baseUrl, fallbackSlug = 'server') {
+function buildServerMetaPayload(serverDir, baseUrl, fallbackSlug = 'server', { unlocked = true, accessToken = '' } = {}) {
   const cfg = readServerConfigSafe(serverDir) || {};
+  const authState = resolveUpdaterAuthState(cfg);
   const slug = cfg.identity?.slug || cfg.slug || fallbackSlug;
   const name = cfg.launcher?.display_name || cfg.identity?.name || cfg.name || slug;
-  const visuals = resolveLocalVisualUrls(serverDir, baseUrl, cfg);
   const cleanBase = String(baseUrl || '').replace(/\/files-updater\/?$/i, '').replace(/\/+$/, '');
+  const updaterUrl = cfg.modpack?.public_updater_url || (cleanBase ? `${cleanBase}/files-updater` : '');
+
+  if (authState.protected && !unlocked) {
+    return {
+      success: true,
+      slug,
+      name,
+      requiresPassword: true,
+      unlocked: false,
+      passwordVersion: authState.passwordVersion,
+      updaterUrl
+    };
+  }
+
+  const visuals = resolveLocalVisualUrls(serverDir, baseUrl, cfg);
   const serverLoader = cfg.game?.loader || cfg.identity?.loader || 'neoforge';
   const serverLoaderVersion = cfg.game?.loader_version || cfg.identity?.loader_version || '';
   const clientCfg = resolveEffectiveClientConfig(cfg);
+  const signVisual = (u) => (u && accessToken && cleanBase && u.startsWith(cleanBase))
+    ? appendQueryToken(u, accessToken)
+    : (u || '');
 
   return {
     success: true,
     slug,
     name,
+    requiresPassword: authState.protected,
+    ...(authState.protected ? { unlocked: true, passwordVersion: authState.passwordVersion } : {}),
     description: cfg.launcher?.description || cfg.launcherOptions?.description || '',
     tags: Array.isArray(cfg.launcher?.tags) ? cfg.launcher.tags : (Array.isArray(cfg.launcherOptions?.tags) ? cfg.launcherOptions.tags : []),
     minecraftVersion: cfg.game?.minecraft_version || cfg.identity?.minecraft_version || '1.21.1',
@@ -345,9 +444,10 @@ function buildServerMetaPayload(serverDir, baseUrl, fallbackSlug = 'server') {
     hasClientMods: Boolean(clientCfg.has_mods),
     port: Number(cfg.game?.port || cfg.network?.port || 25565),
     motd: cfg.identity?.motd || '',
-    bannerUrl: visuals.bannerUrl || '',
-    iconUrl: visuals.iconUrl || '',
-    updaterUrl: cfg.modpack?.public_updater_url || (cleanBase ? `${cleanBase}/files-updater` : '')
+    bannerUrl: signVisual(visuals.bannerUrl),
+    iconUrl: signVisual(visuals.iconUrl),
+    updaterUrl,
+    ...(authState.protected && accessToken && updaterUrl ? { signedUpdaterUrl: appendQueryToken(updaterUrl, accessToken) } : {})
   };
 }
 
@@ -358,7 +458,7 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
     try {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, If-None-Match');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, If-None-Match, X-Modey-Server-Password');
     res.setHeader('X-Content-Type-Options', 'nosniff');
 
     if (req.method === 'OPTIONS') {
@@ -373,23 +473,50 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
       return;
     }
 
-    const reqPath = (req.url || '/').split('?')[0];
+    const rawUrl = req.url || '/';
+    const reqUrl = new URL(rawUrl, 'http://127.0.0.1');
+    const reqPath = rawUrl.split('?')[0];
+    const cfg = readServerConfigSafe(serverDir) || {};
+    const authState = resolveUpdaterAuthState(cfg);
 
     if (reqPath === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, service: 'modey-files-updater', slug }));
+      res.end(JSON.stringify({
+        ok: true,
+        service: 'modey-files-updater',
+        slug,
+        requiresPassword: authState.protected
+      }));
       return;
     }
 
     if (reqPath === '/server-meta') {
+      const authCheck = isRequestAuthorized(req, reqUrl, cfg, { allowQueryToken: false });
       const baseUrl = normalizePublicBaseUrl(publicUrl, req);
-      const meta = buildServerMetaPayload(serverDir, baseUrl, slug);
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=15' });
+      const meta = buildServerMetaPayload(serverDir, baseUrl, slug, {
+        unlocked: authCheck.authorized,
+        accessToken: authCheck.accessToken
+      });
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': authCheck.protected ? 'private, no-store' : 'public, max-age=15'
+      });
       res.end(req.method === 'HEAD' ? undefined : JSON.stringify(meta));
       return;
     }
 
     if (reqPath === '/assets/banner' || reqPath === '/assets/icon') {
+      const authCheck = isRequestAuthorized(req, reqUrl, cfg, { allowQueryToken: true });
+      if (!authCheck.authorized) {
+        res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'PASSWORD_REQUIRED',
+          requiresPassword: true,
+          passwordVersion: authCheck.authState.passwordVersion
+        }));
+        return;
+      }
       const kind = reqPath === '/assets/banner' ? 'banner' : 'icon';
       const asset = resolveVisualAssetFile(serverDir, kind);
       if (!asset) {
@@ -402,7 +529,7 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
         'Content-Type': asset.mimeType,
         'Content-Length': stats.size,
         'Content-Security-Policy': "default-src 'none'; sandbox",
-        'Cache-Control': 'public, max-age=300'
+        'Cache-Control': authCheck.protected ? 'private, no-store' : 'public, max-age=300'
       });
       if (req.method === 'HEAD') {
         res.end();
@@ -413,22 +540,40 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
     }
 
     if (reqPath === '/files-updater' || reqPath.startsWith('/files-updater/')) {
+      const authCheck = isRequestAuthorized(req, reqUrl, cfg, { allowQueryToken: true });
+      if (!authCheck.authorized) {
+        res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'PASSWORD_REQUIRED',
+          requiresPassword: true,
+          passwordVersion: authCheck.authState.passwordVersion
+        }));
+        return;
+      }
       const baseUrl = normalizePublicBaseUrl(publicUrl, req);
-      const serverMeta = buildServerMetaPayload(serverDir, baseUrl, slug);
-      const manifest = buildClientFilesManifest(clientFilesDir, baseUrl, slug, serverMeta);
+      const serverMeta = buildServerMetaPayload(serverDir, baseUrl, slug, {
+        unlocked: true,
+        accessToken: authCheck.accessToken
+      });
+      const manifest = buildClientFilesManifest(clientFilesDir, baseUrl, slug, serverMeta, {
+        accessToken: authCheck.accessToken
+      });
       const payload = JSON.stringify(manifest);
       const hash = crypto.createHash('md5').update(payload).digest('hex');
       const etag = `"${hash}"`;
 
       res.setHeader('ETag', etag);
-      res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=60');
+      res.setHeader('Cache-Control', authCheck.protected ? 'private, no-store' : 'public, max-age=15, stale-while-revalidate=60');
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
-      const clientEtag = req.headers['if-none-match'];
-      if (clientEtag && (clientEtag === etag || clientEtag === `W/${etag}` || clientEtag === hash)) {
-        res.writeHead(304);
-        res.end();
-        return;
+      if (!authCheck.protected) {
+        const clientEtag = req.headers['if-none-match'];
+        if (clientEtag && (clientEtag === etag || clientEtag === `W/${etag}` || clientEtag === hash)) {
+          res.writeHead(304);
+          res.end();
+          return;
+        }
       }
 
       res.writeHead(200);
@@ -437,6 +582,17 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
     }
 
     if (reqPath.startsWith('/files/')) {
+      const authCheck = isRequestAuthorized(req, reqUrl, cfg, { allowQueryToken: true });
+      if (!authCheck.authorized) {
+        res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'PASSWORD_REQUIRED',
+          requiresPassword: true,
+          passwordVersion: authCheck.authState.passwordVersion
+        }));
+        return;
+      }
       let decodedRel = '';
       try {
         decodedRel = decodeURIComponent(reqPath.slice('/files/'.length));

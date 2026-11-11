@@ -311,6 +311,15 @@ async function initCommand(args = {}) {
       }
       loaderVersion = check.loaderVersion || loaderVersion;
     }
+    if (args.standalone) {
+      const providedPwd = typeof args.password === 'string' ? args.password.trim() : '';
+      if (providedPwd && providedPwd.length < 4) {
+        throw new Error('Le mot de passe privé doit contenir au moins 4 caractères.');
+      }
+      if (!providedPwd && !existing?.auth?.private_password_hash) {
+        throw new Error('En mode privé/local (--standalone --non-interactive), un mot de passe d\'accès (--password <min 4 car.>) est obligatoire.');
+      }
+    }
     configData = {
       name: args.name || 'Serveur Modey',
       slug: args.slug || 'modey-server',
@@ -322,6 +331,9 @@ async function initCommand(args = {}) {
       apiUrl: args.apiUrl || DEFAULT_AUTH_URL,
       nodeToken: args.nodeToken || '',
       standalone: Boolean(args.standalone),
+      privatePassword: typeof args.password === 'string' ? args.password.trim() : '',
+      privatePasswordHash: !args.password ? (existing?.auth?.private_password_hash || '') : '',
+      privatePasswordVersion: !args.password ? (existing?.auth?.private_password_version || '') : '',
       javaArgs: args.ram ? normalizeRamJavaArgs(args.ram) : null,
       updaterEnabled: args.updaterEnabled,
       client: args.client || null
@@ -348,6 +360,61 @@ async function initCommand(args = {}) {
       const ramInput = await ask(rl, 'Mémoire RAM max allouée (ex: 4G, 2G)', '4G');
       const javaArgs = normalizeRamJavaArgs(ramInput);
 
+      console.log('');
+      console.log(`  ${bold('Mode réseau du serveur :')}`);
+      console.log(`    ${cyan('1)')} Privé / Local   ${gray('— Hors annuaire public, connexion directe par IP (mot de passe d\'accès obligatoire)')}`);
+      console.log(`    ${cyan('2)')} Réseau Modey    ${gray('— Référencé dans Modey (nécessite un jeton node_token créé par un administrateur)')}`);
+      const defaultNetMode = existing?.auth?.standalone === false && existing?.auth?.node_token ? '2' : '1';
+      const netChoice = (await ask(rl, 'Choix réseau (1 ou 2)', defaultNetMode)).toLowerCase();
+      const isStandalone = !(netChoice === '2' || netChoice === 'modey' || netChoice === 'reseau' || netChoice === 'réseau' || netChoice === 'network');
+
+      let nodeToken = '';
+      let linked = false;
+      let privatePassword = '';
+      let privatePasswordHash = '';
+      let privatePasswordVersion = '';
+
+      if (isStandalone) {
+        if (existing?.auth?.private_password_hash) {
+          const changePwd = await ask(rl, 'Un mot de passe privé est déjà configuré. Le modifier ? (o/N)', 'N');
+          if (isYes(changePwd)) {
+            while (privatePassword.length < 4) {
+              privatePassword = (await ask(rl, 'Mot de passe d\'accès privé (obligatoire, min 4 caractères)', '')).trim();
+              if (privatePassword.length < 4) {
+                logger.warn('Le mot de passe privé doit contenir au moins 4 caractères.');
+              }
+            }
+          } else {
+            privatePasswordHash = existing.auth.private_password_hash;
+            privatePasswordVersion = existing.auth.private_password_version || '';
+          }
+        } else {
+          while (privatePassword.length < 4) {
+            privatePassword = (await ask(rl, 'Mot de passe d\'accès privé (obligatoire, min 4 caractères)', '')).trim();
+            if (privatePassword.length < 4) {
+              logger.warn('En mode Privé / Local, un mot de passe d\'au moins 4 caractères est obligatoire.');
+            }
+          }
+        }
+      } else {
+        nodeToken = (await ask(rl, 'Jeton du nœud (node_token fourni par un administrateur Modey)', existing?.auth?.node_token || '')).trim();
+        linked = Boolean(nodeToken);
+        if (!nodeToken) {
+          logger.warn('Sans jeton node_token créé dans l\'Admin Panel Modey, ce serveur ne pourra pas publier de télémétrie.');
+        }
+        const optPwd = (await ask(rl, 'Mot de passe d\'accès privé (optionnel, Entrée pour laisser sans mot de passe)', '')).trim();
+        if (optPwd) {
+          if (optPwd.length < 4) {
+            logger.warn('Mot de passe trop court (< 4 car.), protection par mot de passe ignorée (vous pouvez l\'ajouter via: modey-server password).');
+          } else {
+            privatePassword = optPwd;
+          }
+        } else if (existing?.auth?.private_password_hash) {
+          privatePasswordHash = existing.auth.private_password_hash;
+          privatePasswordVersion = existing.auth.private_password_version || '';
+        }
+      }
+
       configData = {
         name,
         slug,
@@ -357,9 +424,12 @@ async function initCommand(args = {}) {
         port: Number(port) || 25565,
         publicIp,
         apiUrl: existing?.auth?.api_url || DEFAULT_AUTH_URL,
-        nodeToken: existing?.auth?.node_token || '',
-        linked: Boolean(existing?.auth?.linked || existing?.auth?.node_token),
-        standalone: false,
+        nodeToken,
+        linked,
+        standalone: isStandalone,
+        privatePassword,
+        privatePasswordHash,
+        privatePasswordVersion,
         javaArgs,
         updaterEnabled,
         client: clientConfig
