@@ -12,6 +12,7 @@ const { getSystemMemory, pingMinecraftServer } = require('../services/monitor.js
 const { startUpdaterServer, resolveLocalVisualUrls } = require('../services/updaterServer.js');
 const { resolveJavaLaunchSpec } = require('../services/runtime.js');
 const { ensureAuthlibInjector } = require('../services/installer.js');
+const { ensureRequiredServerPassword } = require('./password.js');
 const { ServerTui } = require('../services/tui.js');
 const logger = require('../utils/logger.js');
 const { bold, cyan, green, yellow, red, gray } = require('../utils/colors.js');
@@ -44,6 +45,11 @@ async function runCommand(args = {}) {
   if (!config) {
     throw new Error('Aucun fichier modey-server.json trouvé. Exécutez d\'abord : modey-server install');
   }
+
+  const pwdEnsure = await ensureRequiredServerPassword(config, {
+    serverDir: process.cwd(),
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY && !args.daemonOnly)
+  });
 
   const slug = config.identity?.slug;
   const serverName = config.identity?.name || slug;
@@ -327,6 +333,13 @@ async function runCommand(args = {}) {
     });
     tui.start();
     logger.setOutputSink((line) => tui.log(line));
+    if (pwdEnsure?.updated) {
+      if (pwdEnsure.generated) {
+        logger.warn(`Mot de passe privé généré : ${bold(green(pwdEnsure.password))} (modifiable via: modey-server password)`);
+      } else {
+        logger.success('Mot de passe privé configuré et actif sur le port 3008.');
+      }
+    }
   } else {
     logger.step(`Démarrage du Serveur Minecraft [${bold(cyan(slug))}]`);
     if (launchSpec.yggdrasilInjected) {

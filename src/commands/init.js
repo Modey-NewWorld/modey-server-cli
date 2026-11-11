@@ -11,6 +11,7 @@ const {
   saveConfig,
   createDefaultConfig,
   isServerModdedLoader,
+  generateRandomAccessPassword,
   DEFAULT_AUTH_URL
 } = require('../config.js');
 const { ModeyApiClient } = require('../services/api.js');
@@ -311,15 +312,17 @@ async function initCommand(args = {}) {
       }
       loaderVersion = check.loaderVersion || loaderVersion;
     }
+    let generatedNonInteractivePwd = '';
     if (args.standalone) {
       const providedPwd = typeof args.password === 'string' ? args.password.trim() : '';
       if (providedPwd && providedPwd.length < 4) {
         throw new Error('Le mot de passe privé doit contenir au moins 4 caractères.');
       }
       if (!providedPwd && !existing?.auth?.private_password_hash) {
-        throw new Error('En mode privé/local (--standalone --non-interactive), un mot de passe d\'accès (--password <min 4 car.>) est obligatoire.');
+        generatedNonInteractivePwd = generateRandomAccessPassword();
       }
     }
+    const effectivePwd = (typeof args.password === 'string' ? args.password.trim() : '') || generatedNonInteractivePwd;
     configData = {
       name: args.name || 'Serveur Modey',
       slug: args.slug || 'modey-server',
@@ -331,13 +334,17 @@ async function initCommand(args = {}) {
       apiUrl: args.apiUrl || DEFAULT_AUTH_URL,
       nodeToken: args.nodeToken || '',
       standalone: Boolean(args.standalone),
-      privatePassword: typeof args.password === 'string' ? args.password.trim() : '',
-      privatePasswordHash: !args.password ? (existing?.auth?.private_password_hash || '') : '',
-      privatePasswordVersion: !args.password ? (existing?.auth?.private_password_version || '') : '',
+      privatePassword: effectivePwd,
+      privatePasswordHash: !effectivePwd ? (existing?.auth?.private_password_hash || '') : '',
+      privatePasswordVersion: !effectivePwd ? (existing?.auth?.private_password_version || '') : '',
       javaArgs: args.ram ? normalizeRamJavaArgs(args.ram) : null,
       updaterEnabled: args.updaterEnabled,
       client: args.client || null
     };
+    if (generatedNonInteractivePwd) {
+      logger.warn(`Mot de passe privé généré automatiquement : ${bold(green(generatedNonInteractivePwd))}`);
+      logger.info(`Modifiez-le si besoin via : ${cyan('modey-server password')}`);
+    }
   } else {
     logger.step('Étape 1 · Configuration du serveur Modey');
     const rl = readline.createInterface({ input: stdin, output: stdout });
@@ -378,10 +385,15 @@ async function initCommand(args = {}) {
         if (existing?.auth?.private_password_hash) {
           const changePwd = await ask(rl, 'Un mot de passe privé est déjà configuré. Le modifier ? (o/N)', 'N');
           if (isYes(changePwd)) {
-            while (privatePassword.length < 4) {
-              privatePassword = (await ask(rl, 'Mot de passe d\'accès privé (obligatoire, min 4 caractères)', '')).trim();
-              if (privatePassword.length < 4) {
+            while (!privatePassword) {
+              const rawPwd = (await ask(rl, 'Mot de passe d\'accès privé (min 4 car., Entrée = générer aléatoirement)', '')).trim();
+              if (!rawPwd) {
+                privatePassword = generateRandomAccessPassword();
+                logger.warn(`Mot de passe privé généré automatiquement : ${bold(green(privatePassword))}`);
+              } else if (rawPwd.length < 4) {
                 logger.warn('Le mot de passe privé doit contenir au moins 4 caractères.');
+              } else {
+                privatePassword = rawPwd;
               }
             }
           } else {
@@ -389,10 +401,15 @@ async function initCommand(args = {}) {
             privatePasswordVersion = existing.auth.private_password_version || '';
           }
         } else {
-          while (privatePassword.length < 4) {
-            privatePassword = (await ask(rl, 'Mot de passe d\'accès privé (obligatoire, min 4 caractères)', '')).trim();
-            if (privatePassword.length < 4) {
+          while (!privatePassword) {
+            const rawPwd = (await ask(rl, 'Mot de passe d\'accès privé (min 4 car., Entrée = générer aléatoirement)', '')).trim();
+            if (!rawPwd) {
+              privatePassword = generateRandomAccessPassword();
+              logger.warn(`Mot de passe privé généré automatiquement : ${bold(green(privatePassword))}`);
+            } else if (rawPwd.length < 4) {
               logger.warn('En mode Privé / Local, un mot de passe d\'au moins 4 caractères est obligatoire.');
+            } else {
+              privatePassword = rawPwd;
             }
           }
         }

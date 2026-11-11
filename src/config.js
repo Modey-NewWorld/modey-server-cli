@@ -19,6 +19,20 @@ function generatePasswordVersion() {
   return crypto.randomBytes(6).toString('hex');
 }
 
+function generateRandomAccessPassword(length = 12) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(Math.max(8, Number(length) || 12));
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    out += alphabet[bytes[i] % alphabet.length];
+  }
+  return out;
+}
+
+function isPasswordRequiredForConfig(config = null) {
+  return Boolean(config?.auth?.standalone || config?.auth?.require_password);
+}
+
 function verifyAccessPassword(password, storedHash) {
   const clean = String(password || '');
   const raw = String(storedHash || '');
@@ -241,5 +255,7 @@ module.exports = {
   resolveEffectiveClientConfig,
   hashAccessPassword,
   verifyAccessPassword,
-  generatePasswordVersion
+  generatePasswordVersion,
+  generateRandomAccessPassword,
+  isPasswordRequiredForConfig
 };

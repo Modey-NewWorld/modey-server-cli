@@ -16,6 +16,7 @@ const {
   resolveEffectiveClientConfig
 } = require('../config.js');
 const { initCommand } = require('./init.js');
+const { ensureRequiredServerPassword } = require('./password.js');
 const {
   downloadFile,
   checkJavaCompatibility,
@@ -120,6 +121,12 @@ async function installCommand(args = {}) {
     if (!config) {
       throw new Error('Configuration annulée : installation interrompue.');
     }
+  } else {
+    await ensureRequiredServerPassword(config, {
+      serverDir: process.cwd(),
+      interactive: Boolean(stdin.isTTY && stdout.isTTY && !args.nonInteractive),
+      password: typeof args.password === 'string' ? args.password : ''
+    });
   }
 
   const { minecraft_version, loader, loader_version } = config.identity;

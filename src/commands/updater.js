@@ -7,12 +7,19 @@ const fs = require('fs');
 const path = require('path');
 const { loadConfig, resolveEffectiveClientConfig } = require('../config.js');
 const { startUpdaterServer } = require('../services/updaterServer.js');
+const { ensureRequiredServerPassword } = require('./password.js');
 const logger = require('../utils/logger.js');
 const { bold, cyan, green, yellow } = require('../utils/colors.js');
 
 async function updaterCommand(args = {}) {
   logger.banner();
   const config = await loadConfig();
+  if (config) {
+    await ensureRequiredServerPassword(config, {
+      serverDir: process.cwd(),
+      interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY)
+    });
+  }
   const slug = args.slug || config?.identity?.slug || config?.slug || 'server';
   const port = Number(args.port || config?.modpack?.updater_port || 3008);
   const publicUrl = args.publicUrl || config?.modpack?.public_updater_url || '';

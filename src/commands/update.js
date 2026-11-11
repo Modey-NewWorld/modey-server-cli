@@ -8,6 +8,7 @@ const { loadConfig, DEFAULT_AUTH_URL } = require('../config.js');
 const { ensureAuthlibInjector } = require('../services/installer.js');
 const { generateStartScripts } = require('../services/runtime.js');
 const { ModeyApiClient } = require('../services/api.js');
+const { ensureRequiredServerPassword } = require('./password.js');
 const logger = require('../utils/logger.js');
 const { bold, cyan, yellow } = require('../utils/colors.js');
 const pkg = require('../../package.json');
@@ -47,8 +48,12 @@ async function updateCommand() {
     );
   }
 
-  // 2. Si on est dans un dossier serveur, rafraîchir authlib-injector.jar et scripts
+  // 2. Si on est dans un dossier serveur, rafraîchir authlib-injector.jar, scripts et mot de passe requis
   if (config) {
+    await ensureRequiredServerPassword(config, {
+      serverDir: process.cwd(),
+      interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY)
+    });
     try {
       await ensureAuthlibInjector(process.cwd(), { force: true });
       logger.success('authlib-injector.jar mis à jour.');

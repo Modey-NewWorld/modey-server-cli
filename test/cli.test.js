@@ -33,6 +33,7 @@ const {
 } = require('../src/services/installer.js');
 const { buildServerMetaPayload, buildClientFilesManifest } = require('../src/services/updaterServer.js');
 const { formatMinecraftLine, fitVisible, stripAnsi, wrapLine, ServerTui } = require('../src/services/tui.js');
+const { ensureRequiredServerPassword } = require('../src/commands/password.js');
 
 test('CLI: parseArgs analyse correctement les arguments et flags', () => {
   const args = ['init', '--slug', 'valkyrie', '--port=25570', '--non-interactive', '-v'];
@@ -351,4 +352,45 @@ test('Security: hashAccessPassword, verifyAccessPassword et rotation private_pas
   assert.equal(conf.auth.require_password, true);
   assert.equal(verifyAccessPassword('mon-mdp-prive', conf.auth.private_password_hash), true);
   assert.ok(conf.auth.private_password_version);
+});
+
+test('Security: ensureRequiredServerPassword génère aléatoirement si absent sur standalone et ignore si non requis ou déjà présent', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'modey-ensure-pwd-'));
+  try {
+    // 1. Standalone legacy sans mot de passe -> génération auto non interactive + sauvegarde
+    const legacyStandalone = createDefaultConfig({ slug: 'legacy-priv', standalone: true });
+    await saveConfig(legacyStandalone, tmpDir);
+
+    const resGen = await ensureRequiredServerPassword(legacyStandalone, {
+      serverDir: tmpDir,
+      interactive: false,
+      quiet: true
+    });
+    assert.equal(resGen.updated, true);
+    assert.equal(resGen.generated, true);
+    assert.ok(resGen.password.length >= 12);
+
+    const reloaded = await loadConfig(tmpDir);
+    assert.equal(verifyAccessPassword(resGen.password, reloaded.auth.private_password_hash), true);
+    assert.ok(reloaded.auth.private_password_version);
+
+    // 2. Deuxième appel -> déjà protégé, rien ne change
+    const resAgain = await ensureRequiredServerPassword(reloaded, {
+      serverDir: tmpDir,
+      interactive: false,
+      quiet: true
+    });
+    assert.equal(resAgain.updated, false);
+
+    // 3. Serveur Réseau Modey sans require_password -> aucune modification
+    const networkPublic = createDefaultConfig({ slug: 'pub-net', standalone: false });
+    const resPub = await ensureRequiredServerPassword(networkPublic, {
+      serverDir: tmpDir,
+      interactive: false,
+      quiet: true
+    });
+    assert.equal(resPub.updated, false);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
 });

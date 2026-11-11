@@ -255,9 +255,10 @@ function readServerConfigSafe(serverDir) {
 
 function resolveUpdaterAuthState(cfg = null) {
   const passwordHash = String(cfg?.auth?.private_password_hash || '').trim();
-  const passwordVersion = String(cfg?.auth?.private_password_version || '').trim() || (passwordHash ? 'v1' : '');
+  const passwordRequired = Boolean(passwordHash || cfg?.auth?.standalone || cfg?.auth?.require_password);
+  const passwordVersion = String(cfg?.auth?.private_password_version || '').trim() || (passwordHash ? 'v1' : 'unset');
   return {
-    protected: Boolean(passwordHash),
+    protected: passwordRequired,
     passwordHash,
     passwordVersion
   };
