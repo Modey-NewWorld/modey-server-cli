@@ -244,7 +244,7 @@ async function runCommand(args = {}) {
           return;
         }
         if (input === '/clear') {
-          tui.renderLayout();
+          tui.clearLogs();
           return;
         }
         if (input === '/status') {

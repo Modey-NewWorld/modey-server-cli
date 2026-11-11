@@ -14,7 +14,7 @@ const { ModeyApiClient } = require('../src/services/api.js');
 const { resolveJavaLaunchSpec, generateStartScripts } = require('../src/services/runtime.js');
 const { normalizeLoaderChoice, normalizeRamJavaArgs, slugifyName } = require('../src/commands/init.js');
 const { getNeoForgePrefixForMc, resolvePaperDownloadUrl, resolveAuthlibInjectorUrl } = require('../src/services/installer.js');
-const { formatMinecraftLine, fitVisible, stripAnsi } = require('../src/services/tui.js');
+const { formatMinecraftLine, fitVisible, stripAnsi, wrapLine, ServerTui } = require('../src/services/tui.js');
 
 test('CLI: parseArgs analyse correctement les arguments et flags', () => {
   const args = ['init', '--slug', 'valkyrie', '--port=25570', '--non-interactive', '-v'];
@@ -206,4 +206,21 @@ test('TUI Helpers: formatMinecraftLine filtre le bruit JVM et fitVisible ajuste 
   assert.ok(stripAnsi(formatMinecraftLine('[12:00:00] [Server thread/INFO]: Done (4.2s)!')).includes('Done'));
   const padded = fitVisible('Modey', 10);
   assert.equal(stripAnsi(padded).length, 10);
+});
+
+test('TUI Helpers: wrapLine et ServerTui adaptent le prompt " > " et le logo ASCII selon la fenêtre', () => {
+  const parts = wrapLine('ABCDEFGHIJKLMNOPQRSTUVWXYZ01', 12);
+  assert.deepEqual(parts, ['ABCDEFGHIJKL', 'MNOPQRSTUVWX', 'YZ01']);
+
+  const tui = new ServerTui({ name: 'TestNode', slug: 'test-node', cliVersion: '1.3.0' });
+  assert.equal(stripAnsi(tui.promptPrefix), ' > ');
+  assert.equal(stripAnsi(tui.promptPrefix).includes('modey'), false);
+
+  const wideHeader = tui.buildHeaderLines(100, 30).map(stripAnsi).join('\n');
+  assert.ok(wideHeader.includes('Dedicated Node Engine v1.3.0'));
+  assert.ok(wideHeader.includes('TestNode (test-node)'));
+
+  const narrowHeader = tui.buildHeaderLines(60, 15).map(stripAnsi).join('\n');
+  assert.equal(narrowHeader.includes('Dedicated Node Engine'), false);
+  assert.ok(narrowHeader.includes('TestNode (test-node)'));
 });

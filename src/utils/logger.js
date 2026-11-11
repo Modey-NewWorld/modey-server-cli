@@ -17,22 +17,27 @@ function formatArgs(args) {
   return args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
 }
 
+function getAsciiLogoLines(version = pkg.version) {
+  return [
+    cyan('  __  __           _              ____'),
+    cyan(' |  \\/  | ___   __| | ___ _   _  / ___|  ___ _ ____   _____ _ __'),
+    cyan(' | |\\/| |/ _ \\ / _` |/ _ \\ | | | \\___ \\ / _ \\ \'__\\ \\ / / _ \\ \'__|'),
+    cyan(' | |  | | (_) | (_| |  __/ |_| |  ___) |  __/ |   \\ V /  __/ |'),
+    cyan(' |_|  |_|\\___/ \\__,_|\\___|\\__, | |____/ \\___|_|    \\_/ \\___|_|'),
+    `                          ${cyan('|___/')}   ${gray(`-- Dedicated Node Engine v${version} --`)}`
+  ];
+}
+
 const logger = {
   setOutputSink(fn) {
     outputSink = typeof fn === 'function' ? fn : null;
   },
+  getAsciiLogoLines,
   banner() {
-    const ver = `v${pkg.version}`;
-    const line1 = `  ${bold(cyan('◆ MODEY SERVER'))}  ${gray(ver)}`.padEnd(56);
-    const top = gray('  ╭' + '─'.repeat(58) + '╮');
-    const mid1 = `${gray('  │')}  ${bold(cyan('◆ MODEY SERVER CLI'))} ${gray(ver)}${' '.repeat(Math.max(1, 35 - ver.length))}${gray('FlowCreativeStudio')}  ${gray('│')}`;
-    const mid2 = `${gray('  │')}  ${gray('Serveurs Minecraft · SSO Modey · Files-Updater · Zéro Docker')} ${gray('│')}`;
-    const bot = gray('  ╰' + '─'.repeat(58) + '╯');
     console.log('');
-    console.log(top);
-    console.log(mid1);
-    console.log(mid2);
-    console.log(bot);
+    for (const line of getAsciiLogoLines(pkg.version)) {
+      console.log(line);
+    }
     console.log('');
   },
   info(...args) {
@@ -56,9 +61,9 @@ const logger = {
     console.error(line);
   },
   step(title) {
-    const line = `\n  ${cyan('◆')} ${bold(title)}`;
-    if (outputSink) return outputSink(`${cyan('◆')} ${bold(title)}`);
-    console.log(line);
+    const clean = `${cyan('◆')} ${bold(title)}`;
+    if (outputSink) return outputSink(clean);
+    console.log('\n ' + clean);
   }
 };
 
