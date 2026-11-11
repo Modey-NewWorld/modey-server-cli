@@ -12,7 +12,7 @@ async function statusCommand(args = {}) {
   logger.banner();
   const config = await loadConfig();
   const slug = args.slug || config?.identity?.slug;
-  const apiUrl = args.apiUrl || config?.auth?.api_url || 'https://auth.modey.fr';
+  const apiUrl = args.apiUrl || config?.auth?.api_url || 'https://api.modey.flowcrea.fr';
 
   if (!slug) {
     throw new Error('Identifiant serveur introuvable. Spécifiez --slug <nom> ou exécutez la commande dans un dossier avec modey-server.json.');

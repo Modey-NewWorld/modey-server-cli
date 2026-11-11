@@ -8,7 +8,7 @@
  */
 class ModeyApiClient {
   constructor(baseUrl, nodeToken = '') {
-    this.baseUrl = (baseUrl || 'https://auth.modey.fr').replace(/\/+$/, '');
+    this.baseUrl = (baseUrl || 'https://api.modey.flowcrea.fr').replace(/\/+$/, '');
     this.nodeToken = nodeToken;
   }
 

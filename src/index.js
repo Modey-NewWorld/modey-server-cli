@@ -66,6 +66,7 @@ async function main(argv = process.argv.slice(2)) {
         publicIp: parsed['public-ip'],
         apiUrl: parsed['api-url'],
         nodeToken: parsed.token,
+        standalone: Boolean(parsed.standalone),
         nonInteractive: parsed['non-interactive'],
         force: parsed.force
       });

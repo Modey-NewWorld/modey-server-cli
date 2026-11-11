@@ -17,32 +17,47 @@
 `@modey/server-cli` est l'agent léger autonome conçu pour les administrateurs et hébergeurs de serveurs Minecraft. Il permet de :
 
 1. **Générer en quelques secondes le manifeste `modey-server.json`** décrivant l'identité de votre serveur, sa politique d'accès et ses options d'affichage dans le Launcher Modey.
-2. **Installer automatiquement votre chargeur de mods ou serveur de jeu** (*NeoForge*, *Fabric*, *PaperMC*, *Forge*, *Vanilla*).
-3. **Connecter votre serveur à la centrale Modey** via des battements de cœur périodiques (**Heartbeats** toutes les 30s) remontant l'état en ligne, les TPS, la mémoire RAM et les joueurs connectés.
-4. **Synchroniser vos métadonnées** (bannières, description, tags, mode d'accès) directement avec l'Admin Panel et l'API centrale sans aucune manipulation manuelle en base de données.
-5. **Zéro dépendance externe** : Conçu en Node.js pur (Node 18+), il fonctionne immédiatement sur n'importe quelle machine sans alourdir vos serveurs.
+2. **Installer automatiquement votre chargeur de mods ou serveur de jeu** (*NeoForge*, *Fabric*, *PaperMC*, *Forge*, *Vanilla*) — aucun `.jar` à chercher manuellement.
+3. **Héberger votre propre Files-Updater** (`client-files/`) directement sur votre machine pour distribuer vos mods requis/optionnels au Launcher Modey, même sans Docker.
+4. **Connecter votre serveur au réseau Modey (optionnel)** via des battements de cœur périodiques (**Heartbeats** toutes les 30s), ou fonctionner **100 % en local / privé** (`--standalone`).
+5. **Zéro dépendance externe** : Conçu en Node.js pur (Node 18+), il génère des scripts `start.bat` (Windows) et `start.sh` (Linux) prêts à l'emploi.
 
 ---
 
-## 🚀 Installation & Démarrage Rapide
+## 🚀 Installation & Démarrage Rapide (Sans Docker)
 
 ### Prérequis
 - **Node.js 18.0.0 ou supérieur** (`node -v`)
-- **Java 21 ou supérieur** pour exécuter Minecraft 1.20.5+
+- **Java 21 ou supérieur** (`java -version`) pour exécuter Minecraft 1.20.5+
 
-### Utilisation avec `npx` (Recommandé)
-Vous n'avez même pas besoin d'installer le paquet localement. Placez-vous dans le dossier de votre serveur et lancez :
+### Option A — Via `npx` directement depuis GitHub (Recommandé, sans installation)
+Placez-vous dans un dossier vide pour votre serveur et lancez :
 
 ```bash
-# 1. Assistant interactif pour générer modey-server.json
-npx @modey/server-cli init
+# 1. Assistant interactif pour générer modey-server.json (+ start.bat / start.sh)
+npx github:Modey-NewWorld/modey-server-cli init
 
-# 2. Téléchargement automatique du loader et acceptation de l'EULA
-npx @modey/server-cli install
+# 2. Téléchargement automatique du serveur (NeoForge, Fabric ou Paper) + EULA + dossiers client-files/
+npx github:Modey-NewWorld/modey-server-cli install
 
-# 3. Démarrage du serveur avec surveillance et battements de cœur
-npx @modey/server-cli run
+# 3. Démarrage du serveur Minecraft + Files-Updater HTTP
+npx github:Modey-NewWorld/modey-server-cli run
 ```
+
+### Option B — Installation globale (`modey-server`)
+
+```bash
+npm install -g git+https://github.com/Modey-NewWorld/modey-server-cli.git
+modey-server init
+modey-server install
+```
+
+### Lancer avec `start.bat` (Windows) ou `start.sh` (Linux / macOS)
+Après `init` ou `install`, deux scripts sont automatiquement générés à la racine de votre serveur :
+- **Windows** : double-cliquez sur `start.bat` (ou lancez `.\start.bat` dans un terminal).
+- **Linux / macOS** : rendez exécutable une fois (`chmod +x start.sh`) puis lancez `./start.sh`.
+
+> Aucun Docker requis : les scripts lancent le serveur Minecraft (`java`) ainsi que le serveur HTTP **Files-Updater** (`client-files/`).
 
 ---
 
@@ -50,12 +65,13 @@ npx @modey/server-cli run
 
 | Commande | Description |
 | :--- | :--- |
-| `modey-server init` | Lance l'assistant de configuration interactif (nom, slug, loader, port, token). |
-| `modey-server install` | Prépare l'arborescence (`/mods`, `/config`), accepte `eula.txt` et télécharge le jar serveur. |
-| `modey-server sync` | Envoie le contenu de `modey-server.json` vers la plateforme centrale Modey. |
-| `modey-server run` | Démarre le serveur Minecraft (`java`) et le daemon de télémétrie en tâche de fond. |
-| `modey-server run --daemon-only` | Exécute uniquement la télémétrie si le serveur tourne déjà sous **systemd**, **Docker** ou **Pterodactyl**. |
-| `modey-server status` | Interroge la centrale pour afficher l'état en direct du serveur et ses badges de certification. |
+| `modey-server init` | Lance l'assistant de configuration interactif (`--standalone` pour un serveur 100% privé/local). |
+| `modey-server install` | Crée `/mods`, `/config`, `/client-files`, accepte `eula.txt`, télécharge/installe le loader (`.jar` ou NeoForge) et crée `start.bat`/`start.sh`. |
+| `modey-server sync` | Envoie le contenu de `modey-server.json` vers l'API centrale Modey (optionnel). |
+| `modey-server run` | Démarre le serveur Minecraft (`java`), le Files-Updater HTTP et la télémétrie (si configurée). |
+| `modey-server run --daemon-only` | Exécute uniquement la télémétrie et le Files-Updater si le serveur tourne déjà sous **systemd**, **Docker** ou **Pterodactyl**. |
+| `modey-server updater` | Démarre uniquement le serveur HTTP Files-Updater (`client-files/`). |
+| `modey-server status` | Interroge l'API centrale pour afficher l'état en direct du serveur et ses badges. |
 | `modey-server --help` | Affiche l'aide détaillée et les options disponibles. |
 
 ---
@@ -80,7 +96,8 @@ Le fichier généré à la racine de votre serveur ressemble à ceci :
     "port": 25565
   },
   "auth": {
-    "api_url": "https://auth.modey.fr",
+    "standalone": false,
+    "api_url": "https://api.modey.flowcrea.fr",
     "node_token": "nd_sec_7a8b9c..."
   },
   "launcherOptions": {

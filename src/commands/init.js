@@ -7,6 +7,7 @@ const readline = require('readline/promises');
 const { stdin, stdout } = require('process');
 const { loadConfig, saveConfig, createDefaultConfig, DEFAULT_AUTH_URL } = require('../config.js');
 const { ModeyApiClient } = require('../services/api.js');
+const { generateStartScripts } = require('../services/runtime.js');
 const logger = require('../utils/logger.js');
 const { bold, cyan, yellow, gray } = require('../utils/colors.js');
 
@@ -42,7 +43,8 @@ async function initCommand(args = {}) {
       port: Number(args.port) || 25565,
       publicIp: args.publicIp || '',
       apiUrl: args.apiUrl || DEFAULT_AUTH_URL,
-      nodeToken: args.nodeToken || ''
+      nodeToken: args.nodeToken || '',
+      standalone: Boolean(args.standalone)
     };
   } else {
     logger.step('Configuration Interactive du Nœud Serveur');
@@ -55,8 +57,19 @@ async function initCommand(args = {}) {
     const loaderVersion = await ask(rl, 'Version du Loader', existing?.identity?.loader_version || (loader === 'neoforge' ? '21.1.265' : ''));
     const port = await ask(rl, 'Port de jeu Minecraft', String(existing?.network?.port || 25565));
     const publicIp = await ask(rl, 'Adresse IP publique / Domaine (optionnel)', existing?.network?.public_ip || '');
-    const apiUrl = await ask(rl, 'URL de la plateforme centrale Modey', existing?.auth?.api_url || DEFAULT_AUTH_URL);
-    const nodeToken = await ask(rl, 'Token de sécurité du nœud (si déjà généré via l\'Admin Panel)', existing?.auth?.node_token || '');
+    const connectAnswer = await ask(
+      rl,
+      'Connecter ce serveur à la plateforme Modey ? (O/n, "n" pour un serveur privé/autonome)',
+      existing?.auth?.standalone ? 'n' : 'o'
+    );
+    const standalone = /^n/i.test(connectAnswer.trim());
+
+    let apiUrl = '';
+    let nodeToken = '';
+    if (!standalone) {
+      apiUrl = await ask(rl, 'URL de l\'API centrale Modey', existing?.auth?.api_url || DEFAULT_AUTH_URL);
+      nodeToken = await ask(rl, 'Token du nœud (optionnel — laisser vide pour un serveur personnel)', existing?.auth?.node_token || '');
+    }
 
     rl.close();
 
@@ -69,17 +82,18 @@ async function initCommand(args = {}) {
       port: Number(port) || 25565,
       publicIp,
       apiUrl,
-      nodeToken
+      nodeToken,
+      standalone
     };
   }
 
   const newConfig = createDefaultConfig(configData);
 
-  // Tentative de premier contact si un nodeToken est fourni
-  if (newConfig.auth.nodeToken) {
+  // Tentative de premier contact si un node_token est fourni
+  if (!newConfig.auth.standalone && newConfig.auth.node_token && newConfig.auth.api_url) {
     logger.info('Validation du jeton auprès de la centrale Modey...');
     try {
-      const client = new ModeyApiClient(newConfig.auth.api_url, newConfig.auth.nodeToken);
+      const client = new ModeyApiClient(newConfig.auth.api_url, newConfig.auth.node_token);
       await client.sendHeartbeat({
         server_slug: newConfig.identity.slug,
         status: 'offline',
@@ -96,7 +110,11 @@ async function initCommand(args = {}) {
   }
 
   const savedPath = await saveConfig(newConfig);
+  const scripts = await generateStartScripts(process.cwd());
   logger.success(`Manifeste enregistré avec succès : ${bold(cyan(savedPath))}`);
+  if (scripts.length > 0) {
+    logger.info(`Scripts créés : ${bold(scripts.join(', '))} (double-clic ou ./start.sh sans Docker).`);
+  }
   logger.info(`Prochaine étape : installez le serveur via ${bold('modey-server install')} ou démarrez-le via ${bold('modey-server run')}.`);
 }
 

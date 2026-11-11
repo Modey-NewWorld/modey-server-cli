@@ -14,7 +14,7 @@ function helpCommand() {
 ${bold('COMMANDES DISPONIBLES :')}
   ${cyan('init')}      Lance l'assistant interactif pour configurer modey-server.json
   ${cyan('install')}   Télécharge le loader (Paper, Fabric, NeoForge) et accepte l'EULA
-  ${cyan('sync')}      Synchronise le manifeste local avec l'Admin Panel et l'API centrale
+  ${cyan('sync')}      Synchronise le manifeste local avec l'API centrale Modey (optionnel)
   ${cyan('run')}       Lance le serveur Minecraft avec la télémétrie Heartbeat en arrière-plan
   ${cyan('updater')}   Démarre uniquement le serveur HTTP Files-Updater (dossier client-files/)
   ${cyan('status')}    Affiche le statut en direct de votre nœud vu par le réseau Modey
@@ -24,8 +24,9 @@ ${bold('OPTIONS GLOBALES & PAR COMMANDE :')}
   ${yellow('--help, -h')}             Affiche l'aide
   ${yellow('--version, -v')}          Affiche la version du CLI
   ${yellow('--slug <slug>')}          Identifiant unique du serveur
-  ${yellow('--api-url <url>')}        URL de l'API centrale Modey (défaut: https://auth.modey.fr)
+  ${yellow('--api-url <url>')}        URL de l'API centrale Modey (défaut: https://api.modey.flowcrea.fr)
   ${yellow('--token <jeton>')}        Jeton de sécurité du nœud (node_token)
+  ${yellow('--standalone')}           (Avec init) Mode privé/local sans connexion API centrale
   ${yellow('--daemon-only')}          (Avec run) Exécute uniquement l'émetteur de télémétrie sans lancer Java
   ${yellow('--non-interactive')}      (Avec init) Génère la configuration sans poser de questions
 

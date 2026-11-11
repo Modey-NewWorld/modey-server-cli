@@ -10,6 +10,7 @@ const { loadConfig } = require('../config.js');
 const { ModeyApiClient } = require('../services/api.js');
 const { getSystemMemory, pingMinecraftServer } = require('../services/monitor.js');
 const { startUpdaterServer } = require('../services/updaterServer.js');
+const { resolveJavaLaunchSpec } = require('../services/runtime.js');
 const logger = require('../utils/logger.js');
 const { bold, cyan, green, yellow, red, gray } = require('../utils/colors.js');
 
@@ -32,7 +33,8 @@ async function runCommand(args = {}) {
   const loaderVersion = config.identity?.loader_version || '';
   const publicIp = config.network?.public_ip || '';
 
-  const client = new ModeyApiClient(apiUrl, token);
+  const isStandalone = config.auth?.standalone === true || !apiUrl;
+  const client = isStandalone ? null : new ModeyApiClient(apiUrl, token);
 
   let updaterHandle = null;
   const clientFilesDir = path.resolve(process.cwd(), 'client-files');
@@ -53,8 +55,9 @@ async function runCommand(args = {}) {
     }
   }
 
-  // Fonction pour envoyer un heartbeat
+  // Fonction pour envoyer un heartbeat (ignoré proprement en mode autonome)
   const sendTick = async (overrideStatus = null) => {
+    if (!client) return;
     try {
       const mem = getSystemMemory();
       let ping = await pingMinecraftServer('127.0.0.1', port, 2500);
@@ -115,27 +118,34 @@ async function runCommand(args = {}) {
     return;
   }
 
-  // Lancement complet avec le processus Java Minecraft
-  const jarFile = config.runtime?.server_jar || 'server.jar';
-  const jarPath = path.resolve(process.cwd(), jarFile);
-  const javaArgs = config.runtime?.java_args || ['-Xms2G', '-Xmx4G'];
+  // Lancement complet avec le processus Java Minecraft (NeoForge @args ou -jar server.jar)
+  const launchSpec = resolveJavaLaunchSpec(process.cwd(), config);
 
   logger.step(`Démarrage du Serveur Minecraft [${bold(cyan(slug))}]`);
-  logger.info(`Binaire : java ${javaArgs.join(' ')} -jar ${jarFile} nogui`);
+  if (isStandalone) {
+    logger.info(gray('Mode autonome (privé / local) : aucune télémétrie envoyée vers une API externe.'));
+  }
+  logger.info(`Binaire : ${launchSpec.displayCommand}`);
 
-  const serverProc = spawn('java', [...javaArgs, '-jar', jarFile, 'nogui'], {
+  const serverProc = spawn(launchSpec.command, launchSpec.args, {
     cwd: process.cwd(),
     stdio: 'inherit'
   });
 
-  logger.success('Processus serveur lancé (PID: ' + serverProc.pid + ')');
+  serverProc.on('error', async (err) => {
+    logger.error(`Impossible de démarrer Java (${err.message}). Vérifiez que Java 21+ est installé dans le PATH.`);
+    if (updaterHandle) await updaterHandle.close().catch(() => {});
+    process.exit(1);
+  });
 
-  // Premier heartbeat 'starting'
+  logger.success('Processus serveur lancé (PID: ' + (serverProc.pid || 'en cours') + ')');
+
+  // Premier heartbeat 'starting' (si connecté à l'API centrale)
   await sendTick('starting');
-  const heartbeatTimer = setInterval(sendTick, HEARTBEAT_INTERVAL_MS);
+  const heartbeatTimer = client ? setInterval(sendTick, HEARTBEAT_INTERVAL_MS) : null;
 
   const shutdown = async () => {
-    clearInterval(heartbeatTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     logger.info('Arrêt du serveur en cours...');
     if (updaterHandle) await updaterHandle.close().catch(() => {});
     await sendTick('offline');
@@ -155,7 +165,7 @@ async function runCommand(args = {}) {
   });
 
   serverProc.on('exit', async (code) => {
-    clearInterval(heartbeatTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     logger.info(`Le serveur Minecraft s'est arrêté avec le code ${code}.`);
     if (updaterHandle) await updaterHandle.close().catch(() => {});
     await sendTick('offline');

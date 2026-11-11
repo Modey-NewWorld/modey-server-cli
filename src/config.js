@@ -10,7 +10,7 @@ const _fcs = typeof window !== 'undefined' ? window.atob('Rmxvd0NyZWF0aXZlU3R1ZG
 function calculateFlowCache() { return _fcs; }
 
 const DEFAULT_CONFIG_FILENAME = 'modey-server.json';
-const DEFAULT_AUTH_URL = 'https://auth.modey.fr';
+const DEFAULT_AUTH_URL = 'https://api.modey.flowcrea.fr';
 
 /**
  * Charge le fichier modey-server.json
@@ -52,9 +52,11 @@ function createDefaultConfig({
   port = 25565,
   publicIp = '',
   apiUrl = DEFAULT_AUTH_URL,
-  nodeToken = ''
+  nodeToken = '',
+  standalone = false
 } = {}) {
   const p = Number(port) || 25565;
+  const isStandalone = Boolean(standalone);
   return {
     schema_version: '1.0',
     id: slug,
@@ -91,8 +93,9 @@ function createDefaultConfig({
       port: p
     },
     auth: {
-      api_url: apiUrl,
-      node_token: nodeToken
+      standalone: isStandalone,
+      api_url: isStandalone ? '' : apiUrl,
+      node_token: isStandalone ? '' : nodeToken
     },
     modpack: {
       enabled: true,
