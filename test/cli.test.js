@@ -12,6 +12,8 @@ const { parseArgs } = require('../src/index.js');
 const { createDefaultConfig, loadConfig, saveConfig, calculateFlowCache } = require('../src/config.js');
 const { ModeyApiClient } = require('../src/services/api.js');
 const { resolveJavaLaunchSpec, generateStartScripts } = require('../src/services/runtime.js');
+const { normalizeLoaderChoice, normalizeRamJavaArgs, slugifyName } = require('../src/commands/init.js');
+const { getNeoForgePrefixForMc, resolvePaperDownloadUrl } = require('../src/services/installer.js');
 
 test('CLI: parseArgs analyse correctement les arguments et flags', () => {
   const args = ['init', '--slug', 'valkyrie', '--port=25570', '--non-interactive', '-v'];
@@ -137,5 +139,39 @@ test('Runtime: generateStartScripts génère start.bat et start.sh sans Docker',
     assert.match(sh, /exec npx --yes github:Modey-NewWorld\/modey-server-cli run/);
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Wizard helpers: choix loader, RAM, slug et préfixe NeoForge', () => {
+  assert.equal(normalizeLoaderChoice('1'), 'neoforge');
+  assert.equal(normalizeLoaderChoice('2'), 'fabric');
+  assert.equal(normalizeLoaderChoice('3'), 'paper');
+  assert.equal(normalizeLoaderChoice('4'), 'vanilla');
+  assert.equal(normalizeLoaderChoice('PaperMC'), 'paper');
+
+  assert.deepEqual(normalizeRamJavaArgs('6'), ['-Xms1G', '-Xmx6G']);
+  assert.deepEqual(normalizeRamJavaArgs('4G'), ['-Xms1G', '-Xmx4G']);
+  assert.equal(slugifyName('Mon Serveur Athéna !'), 'mon-serveur-athena');
+  assert.equal(getNeoForgePrefixForMc('1.21.1'), '21.1.');
+  assert.equal(getNeoForgePrefixForMc('1.21'), '21.0.');
+});
+
+test('Installer: resolvePaperDownloadUrl supporte le format PaperMC Fill API v3', async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /fill\.papermc\.io\/v3\/projects\/paper\/versions\/1\.21\.1\/builds/);
+    return new Response(JSON.stringify([
+      {
+        id: 133,
+        channel: 'STABLE',
+        downloads: { 'server:default': { url: 'https://fill-data.papermc.io/v1/objects/abc/paper-1.21.1-133.jar' } }
+      }
+    ]), { status: 200 });
+  };
+  try {
+    const dlUrl = await resolvePaperDownloadUrl('1.21.1');
+    assert.equal(dlUrl, 'https://fill-data.papermc.io/v1/objects/abc/paper-1.21.1-133.jar');
+  } finally {
+    globalThis.fetch = origFetch;
   }
 });

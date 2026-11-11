@@ -53,7 +53,8 @@ function createDefaultConfig({
   publicIp = '',
   apiUrl = DEFAULT_AUTH_URL,
   nodeToken = '',
-  standalone = false
+  standalone = false,
+  javaArgs = null
 } = {}) {
   const p = Number(port) || 25565;
   const isStandalone = Boolean(standalone);
@@ -113,7 +114,7 @@ function createDefaultConfig({
       access_mode: 'normal'
     },
     runtime: {
-      java_args: ['-Xms2G', '-Xmx4G'],
+      java_args: Array.isArray(javaArgs) && javaArgs.length > 0 ? javaArgs : ['-Xms2G', '-Xmx4G'],
       server_jar: 'server.jar'
     }
   };

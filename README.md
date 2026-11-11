@@ -30,19 +30,18 @@
 - **Node.js 18.0.0 ou supérieur** (`node -v`)
 - **Java 21 ou supérieur** (`java -version`) pour exécuter Minecraft 1.20.5+
 
-### Option A — Via `npx` directement depuis GitHub (Recommandé, sans installation)
-Placez-vous dans un dossier vide pour votre serveur et lancez :
+### Option A — Installation guidée en 1 commande (Recommandé, sans installation)
+Placez-vous dans un dossier vide et exécutez simplement :
 
 ```bash
-# 1. Assistant interactif pour générer modey-server.json (+ start.bat / start.sh)
-npx github:Modey-NewWorld/modey-server-cli init
-
-# 2. Téléchargement automatique du serveur (NeoForge, Fabric ou Paper) + EULA + dossiers client-files/
-npx github:Modey-NewWorld/modey-server-cli install
-
-# 3. Démarrage du serveur Minecraft + Files-Updater HTTP
-npx github:Modey-NewWorld/modey-server-cli run
+npx github:Modey-NewWorld/modey-server-cli
 ```
+*(Ou `npx github:Modey-NewWorld/modey-server-cli install` — si `modey-server.json` n'existe pas encore, l'assistant Modey vous pose automatiquement les questions de version, loader, RAM et mode réseau avant de tout télécharger).*
+
+L'assistant s'occupe ensuite de tout automatiquement :
+1. Choix du nom, version Minecraft et type de serveur (**NeoForge**, **Fabric**, **PaperMC** ou **Vanilla**) + RAM.
+2. Téléchargement du serveur officiel / installeur et installation complète.
+3. Création de `eula.txt`, `server.properties`, `client-files/`, `start.bat` et `start.sh`.
 
 ### Option B — Installation globale (`modey-server`)
 

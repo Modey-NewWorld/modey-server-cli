@@ -6,12 +6,16 @@
 const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
+const readline = require('readline/promises');
+const { stdin, stdout } = require('process');
 const { spawn } = require('child_process');
 const { loadConfig } = require('../config.js');
+const { initCommand } = require('./init.js');
 const {
   downloadFile,
   acceptEula,
   resolvePaperDownloadUrl,
+  resolveVanillaDownloadUrl,
   resolveFabricServerJarUrl,
   resolveNeoForgeInstallerUrl
 } = require('../services/installer.js');
@@ -32,14 +36,23 @@ function runProcess(command, args, cwd) {
 
 async function installCommand(args = {}) {
   logger.banner();
-  const config = await loadConfig();
+  let config = await loadConfig();
 
+  // Si modey-server.json est absent, lancer l'assistant de configuration automatiquement
   if (!config) {
-    throw new Error('Aucun fichier modey-server.json trouvé. Exécutez d\'abord: modey-server init');
+    logger.info('Aucun fichier modey-server.json détecté dans ce dossier : lancement de la configuration guidée.');
+    config = await initCommand({
+      ...args,
+      skipBanner: true,
+      skipNextStepHint: true
+    });
+    if (!config) {
+      throw new Error('Configuration annulée : installation interrompue.');
+    }
   }
 
   const { minecraft_version, loader, loader_version } = config.identity;
-  logger.step(`Installation du Serveur [${loader.toUpperCase()} ${loader_version || ''} pour MC ${minecraft_version}]`);
+  logger.step(`Étape 2 · Installation du serveur [${loader.toUpperCase()} ${loader_version || ''} · MC ${minecraft_version}]`);
 
   // 1. Préparation des dossiers serveur & client-files (Files-Updater)
   const dirsToCreate = [
@@ -54,7 +67,7 @@ async function installCommand(args = {}) {
   for (const rel of dirsToCreate) {
     await fs.mkdir(path.resolve(process.cwd(), rel), { recursive: true });
   }
-  logger.info('Dossiers /mods, /config et /client-files initialisés.');
+  logger.info('Dossiers /mods, /config et /client-files prêts.');
 
   // 2. Acceptation du contrat EULA et server.properties initial
   await acceptEula();
@@ -79,10 +92,16 @@ async function installCommand(args = {}) {
     await downloadFile(paperUrl, destPath);
     logger.success(`PaperMC installé sous ${bold(cyan(targetJar))}.`);
   } else if (loader === 'fabric') {
-    logger.info(`Téléchargement du serveur Fabric (${loader_version || 'dernière version'})...`);
+    logger.info(`Téléchargement du serveur Fabric (${loader_version || '0.16.9'})...`);
     const fabricUrl = resolveFabricServerJarUrl(minecraft_version, loader_version || '0.16.9');
     await downloadFile(fabricUrl, destPath);
     logger.success(`Fabric Server installé sous ${bold(cyan(targetJar))}.`);
+  } else if (loader === 'vanilla') {
+    logger.info(`Recherche du server.jar officiel Vanilla ${minecraft_version}...`);
+    const vanillaUrl = await resolveVanillaDownloadUrl(minecraft_version);
+    logger.info(`Téléchargement de Vanilla ${minecraft_version}...`);
+    await downloadFile(vanillaUrl, destPath);
+    logger.success(`Vanilla installé sous ${bold(cyan(targetJar))}.`);
   } else if (loader === 'neoforge') {
     const installerFile = 'neoforge-installer.jar';
     const installerPath = path.resolve(process.cwd(), installerFile);
@@ -90,25 +109,37 @@ async function installCommand(args = {}) {
     const neoUrl = resolveNeoForgeInstallerUrl(loader_version);
     await downloadFile(neoUrl, installerPath);
     logger.success(`Installeur NeoForge téléchargé (${installerFile}).`);
-    logger.info('Exécution automatique de l\'installation serveur NeoForge (--install-server)...');
+    logger.info('Installation des bibliothèques NeoForge en cours (java --install-server)...');
     try {
       await runProcess('java', ['-jar', installerFile, '--install-server'], process.cwd());
-      logger.success('Serveur NeoForge installé avec succès (bibliothèques prêtes).');
+      logger.success('Serveur NeoForge installé avec succès.');
     } catch (err) {
       logger.warn(`Installation automatique NeoForge interrompue (${err.message}).`);
       logger.info(`Vérifiez que Java 21+ est installé puis lancez : ${bold(`java -jar ${installerFile} --install-server`)}`);
     }
   } else {
-    logger.info(`Loader personnalisé ou ${loader} détecté. Veuillez placer votre jar sous ${bold(cyan(targetJar))}.`);
+    logger.info(`Loader personnalisé (${loader}) : placez votre exécutable sous ${bold(cyan(targetJar))}.`);
   }
 
   // 4. Génération des scripts start.bat / start.sh sans Docker
+  logger.step('Étape 3 · Finalisation & scripts de démarrage');
   const scripts = await generateStartScripts(process.cwd());
   if (scripts.length > 0) {
-    logger.info(`Scripts de lancement créés : ${bold(cyan(scripts.join(', ')))}`);
+    logger.info(`Scripts générés : ${bold(cyan(scripts.join(', ')))}`);
   }
 
-  logger.success(`Installation terminée ! Lancez le serveur via ${bold('start.bat')} / ${bold('./start.sh')} ou ${bold('modey-server run')}.`);
+  const starterHint = process.platform === 'win32' ? 'start.bat' : './start.sh';
+  logger.success(`Installation terminée ! Démarrez votre serveur avec ${bold(starterHint)} ou ${bold('modey-server run')}.`);
+
+  if (args.offerLaunch && stdin.isTTY) {
+    const rl = readline.createInterface({ input: stdin, output: stdout });
+    const launchNow = await rl.question('Démarrer le serveur maintenant ? [o/N]: ');
+    rl.close();
+    if (/^(o|oui|y|yes)$/i.test(launchNow.trim())) {
+      const { runCommand } = require('./run.js');
+      await runCommand({});
+    }
+  }
 }
 
 module.exports = { installCommand };

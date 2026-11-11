@@ -11,6 +11,7 @@ const { runCommand } = require('./commands/run.js');
 const { statusCommand } = require('./commands/status.js');
 const { updaterCommand } = require('./commands/updater.js');
 const { helpCommand } = require('./commands/help.js');
+const { loadConfig } = require('./config.js');
 const pkg = require('../package.json');
 
 /**
@@ -40,6 +41,24 @@ function parseArgs(args) {
   return parsed;
 }
 
+function extractInitOptions(parsed) {
+  return {
+    slug: parsed.slug,
+    name: parsed.name,
+    mcVersion: parsed['mc-version'],
+    loader: parsed.loader,
+    loaderVersion: parsed['loader-version'],
+    port: parsed.port,
+    publicIp: parsed['public-ip'],
+    apiUrl: parsed['api-url'],
+    nodeToken: parsed.token,
+    ram: parsed.ram,
+    standalone: Boolean(parsed.standalone),
+    nonInteractive: Boolean(parsed['non-interactive']),
+    force: Boolean(parsed.force)
+  };
+}
+
 async function main(argv = process.argv.slice(2)) {
   const parsed = parseArgs(argv);
   const command = parsed._[0] || '';
@@ -49,32 +68,39 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
 
-  if (parsed.help || parsed.h || !command) {
+  if (parsed.help || parsed.h) {
+    helpCommand();
+    return;
+  }
+
+  // Si aucune commande n'est passée dans un dossier vide interactif, lancer l'installation guidée
+  if (!command) {
+    const existing = await loadConfig().catch(() => null);
+    if (!existing && process.stdin.isTTY) {
+      await installCommand({ ...extractInitOptions(parsed), offerLaunch: true });
+      return;
+    }
     helpCommand();
     return;
   }
 
   switch (command.toLowerCase()) {
     case 'init':
-      await initCommand({
-        slug: parsed.slug,
-        name: parsed.name,
-        mcVersion: parsed['mc-version'],
-        loader: parsed.loader,
-        loaderVersion: parsed['loader-version'],
-        port: parsed.port,
-        publicIp: parsed['public-ip'],
-        apiUrl: parsed['api-url'],
-        nodeToken: parsed.token,
-        standalone: Boolean(parsed.standalone),
-        nonInteractive: parsed['non-interactive'],
-        force: parsed.force
-      });
+      await initCommand(extractInitOptions(parsed));
       break;
 
     case 'install':
       await installCommand({
+        ...extractInitOptions(parsed),
         acceptEula: parsed['accept-eula']
+      });
+      break;
+
+    case 'setup':
+      await installCommand({
+        ...extractInitOptions(parsed),
+        acceptEula: parsed['accept-eula'],
+        offerLaunch: true
       });
       break;
 
