@@ -147,6 +147,7 @@ function createDefaultConfig({
   privatePassword = '',
   privatePasswordHash = '',
   privatePasswordVersion = '',
+  requiresMinecraft = true,
   javaArgs = null,
   updaterEnabled = undefined,
   updaterPort = 3008,
@@ -215,7 +216,7 @@ function createDefaultConfig({
       yggdrasil_enabled: yggdrasilEnabled !== false,
       node_token: resolvedToken,
       require_password: Boolean(isStandalone || resolvedPasswordHash),
-      requires_minecraft: true,
+      requires_minecraft: Boolean(requiresMinecraft),
       ...(resolvedPasswordHash ? {
         private_password_hash: resolvedPasswordHash,
         private_password_version: resolvedPasswordVersion
@@ -232,7 +233,7 @@ function createDefaultConfig({
       tags: ['Survie', 'Communauté'],
       is_official: false,
       is_verified: false,
-      account_policy: 'microsoft_required',
+      account_policy: Boolean(requiresMinecraft) ? 'microsoft_required' : 'modey',
       enforce_hash_integrity: false,
       access_mode: 'normal'
     },

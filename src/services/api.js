@@ -109,11 +109,15 @@ class ModeyApiClient {
     const modpack = manifest?.modpack || {};
     const updaterPort = modpack.enabled !== false ? Number(modpack.updater_port || 0) || undefined : undefined;
     const updaterUrl = modpack.public_updater_url ? String(modpack.public_updater_url).trim() : undefined;
+    const explicitReqMc = manifest?.auth?.requires_minecraft !== undefined
+      ? Boolean(manifest.auth.requires_minecraft)
+      : (manifest?.launcherOptions?.account_policy === 'microsoft_required');
 
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-modey-cli-version': this.cliVersion,
         ...(this.nodeToken ? { 'x-node-token': this.nodeToken } : {})
       },
       body: JSON.stringify({
@@ -123,6 +127,8 @@ class ModeyApiClient {
         node_token: this.nodeToken,
         updater_port: updaterPort,
         updater_url: updaterUrl,
+        requiresMinecraft: explicitReqMc,
+        accountPolicy: explicitReqMc ? 'microsoft_required' : (manifest?.launcherOptions?.account_policy || 'modey'),
         manifest: {
           ...manifest,
           id: serverSlug,

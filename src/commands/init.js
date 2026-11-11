@@ -337,6 +337,7 @@ async function initCommand(args = {}) {
       privatePassword: effectivePwd,
       privatePasswordHash: !effectivePwd ? (existing?.auth?.private_password_hash || '') : '',
       privatePasswordVersion: !effectivePwd ? (existing?.auth?.private_password_version || '') : '',
+      requiresMinecraft: args.requiresMinecraft !== undefined ? Boolean(args.requiresMinecraft) : true,
       javaArgs: args.ram ? normalizeRamJavaArgs(args.ram) : null,
       updaterEnabled: args.updaterEnabled,
       client: args.client || null
@@ -380,6 +381,7 @@ async function initCommand(args = {}) {
       let privatePassword = '';
       let privatePasswordHash = '';
       let privatePasswordVersion = '';
+      let requiresMinecraft = true;
 
       if (isStandalone) {
         if (existing?.auth?.private_password_hash) {
@@ -419,6 +421,12 @@ async function initCommand(args = {}) {
         if (!nodeToken) {
           logger.warn('Sans jeton node_token créé dans l\'Admin Panel Modey, ce serveur ne pourra pas publier de télémétrie.');
         }
+        const defaultReqMc = existing?.auth?.requires_minecraft === false ? 'n' : 'O';
+        const reqMcAnswer = await ask(rl, 'Exiger un compte Minecraft / Microsoft pour rejoindre ce serveur ? (O/n)', defaultReqMc);
+        requiresMinecraft = isYes(reqMcAnswer, defaultReqMc.toLowerCase() === 'o');
+        if (!requiresMinecraft) {
+          logger.info(gray('Note : Modey Auth appliquera la règle la plus restrictive (Minecraft requis tant que le serveur n\'est pas Validé).'));
+        }
         const optPwd = (await ask(rl, 'Mot de passe d\'accès privé (optionnel, Entrée pour laisser sans mot de passe)', '')).trim();
         if (optPwd) {
           if (optPwd.length < 4) {
@@ -447,6 +455,7 @@ async function initCommand(args = {}) {
         privatePassword,
         privatePasswordHash,
         privatePasswordVersion,
+        requiresMinecraft,
         javaArgs,
         updaterEnabled,
         client: clientConfig
@@ -462,15 +471,22 @@ async function initCommand(args = {}) {
     logger.info('Validation du jeton auprès de l\'API Modey...');
     try {
       const client = new ModeyApiClient(newConfig.auth.api_url, newConfig.auth.node_token);
-      await client.sendHeartbeat({
+      const hbRes = await client.sendHeartbeat({
         server_slug: newConfig.identity.slug,
         status: 'OFFLINE',
         mc_version: newConfig.identity.minecraft_version,
         loader_type: newConfig.identity.loader,
         loader_version: newConfig.identity.loader_version,
         public_ip: newConfig.network.public_ip,
-        public_port: newConfig.network.port
+        public_port: newConfig.network.port,
+        requiresMinecraft: Boolean(newConfig.auth.requires_minecraft)
       });
+      if (hbRes?.slug && hbRes.slug !== newConfig.identity.slug) {
+        logger.info(`Slug aligné sur la fiche Modey : ${bold(cyan(hbRes.slug))}`);
+        newConfig.id = hbRes.slug;
+        newConfig.slug = hbRes.slug;
+        newConfig.identity.slug = hbRes.slug;
+      }
       logger.success('Nœud reconnu avec succès par l\'API Modey !');
     } catch (err) {
       logger.warn(`Impossible de joindre l'API avec ce jeton (${err.message}). Synchronisez plus tard via: modey-server sync`);

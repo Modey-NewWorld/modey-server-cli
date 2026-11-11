@@ -394,3 +394,62 @@ test('Security: ensureRequiredServerPassword génère aléatoirement si absent s
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Policy & Sync: createDefaultConfig requiresMinecraft et syncMetadata + alignement slug', async () => {
+  const http = require('http');
+  const { syncCommand } = require('../src/commands/sync.js');
+
+  const reqMcTrue = createDefaultConfig({ slug: 'partenaire-a', standalone: false, requiresMinecraft: true });
+  assert.equal(reqMcTrue.auth.requires_minecraft, true);
+  assert.equal(reqMcTrue.launcherOptions.account_policy, 'microsoft_required');
+
+  const reqMcFalse = createDefaultConfig({ slug: 'partenaire-b', standalone: false, requiresMinecraft: false });
+  assert.equal(reqMcFalse.auth.requires_minecraft, false);
+  assert.equal(reqMcFalse.launcherOptions.account_policy, 'modey');
+
+  let receivedBody = null;
+  const mockApi = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      receivedBody = JSON.parse(raw || '{}');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        slug: 'partenaire-renomme',
+        accountPolicy: 'microsoft_required'
+      }));
+    });
+  });
+
+  await new Promise(resolve => mockApi.listen(0, '127.0.0.1', resolve));
+  const { port } = mockApi.address();
+  const prevCwd = process.cwd();
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'modey-sync-slug-'));
+
+  try {
+    const conf = createDefaultConfig({
+      slug: 'ancien-slug',
+      standalone: false,
+      apiUrl: `http://127.0.0.1:${port}`,
+      nodeToken: 'tok-test-sync',
+      requiresMinecraft: true
+    });
+    await saveConfig(conf, tmpDir);
+    process.chdir(tmpDir);
+
+    await syncCommand();
+
+    assert.equal(receivedBody.requiresMinecraft, true);
+    assert.equal(receivedBody.accountPolicy, 'microsoft_required');
+
+    const updated = await loadConfig(tmpDir);
+    assert.equal(updated.identity.slug, 'partenaire-renomme');
+    assert.equal(updated.slug, 'partenaire-renomme');
+    assert.equal(updated.id, 'partenaire-renomme');
+  } finally {
+    process.chdir(prevCwd);
+    await new Promise(resolve => mockApi.close(resolve));
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});

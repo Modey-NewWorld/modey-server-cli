@@ -30,6 +30,7 @@ async function linkCommand(args = {}) {
   logger.info(`API cible : ${apiUrl}`);
 
   const client = new ModeyApiClient(apiUrl, token);
+  const reqMc = config.auth?.requires_minecraft !== false;
   const res = await client.linkNode(token, {
     slug: config.identity?.slug,
     name: config.identity?.name,
@@ -38,7 +39,9 @@ async function linkCommand(args = {}) {
     loaderVersion: config.identity?.loader_version,
     port: config.network?.port || 25565,
     publicIp,
-    updaterUrl
+    updaterUrl,
+    requiresMinecraft: reqMc,
+    accountPolicy: reqMc ? 'microsoft_required' : (config.launcherOptions?.account_policy || 'modey')
   });
 
   if (res.server?.slug && res.server.slug !== config.identity?.slug) {
@@ -58,7 +61,7 @@ async function linkCommand(args = {}) {
 
   await saveConfig(config);
   logger.success(`Serveur "${bold(res.server?.name || config.identity?.slug)}" lié et confirmé !`);
-  logger.info(`Visibilité Launcher actuelle : ${yellow(res.server?.visibility || 'PUBLIC')} (gérée par l'équipe Modey).`);
+  logger.info(`Visibilité Launcher : ${yellow(res.server?.visibility || 'PUBLIC')} · Politique comptes effective : ${cyan(res.server?.account_policy || 'microsoft_required')}.`);
   logger.info(`Démarrez le serveur (${bold('start.bat')} / ${bold('modey-server run')}) pour apparaître en ligne.`);
 }
 

@@ -31,12 +31,26 @@ async function syncCommand() {
   const result = await client.syncMetadata(slug, config);
 
   if (result.success) {
-    logger.success('Manifeste et options Launcher synchronisés avec succès !');
+    let configDirty = false;
+    if (result.slug && result.slug !== slug) {
+      logger.info(`Slug aligné sur la fiche Modey : ${bold(cyan(result.slug))}`);
+      config.id = result.slug;
+      config.slug = result.slug;
+      if (config.identity) config.identity.slug = result.slug;
+      configDirty = true;
+    }
     if (result.node_token && !token) {
       config.auth.node_token = result.node_token;
+      configDirty = true;
+      logger.info('Nouveau jeton node_token généré et sauvegardé dans modey-server.json.');
+    }
+    if (configDirty) {
       const { saveConfig } = require('../config.js');
       await saveConfig(config);
-      logger.info('Nouveau jeton node_token généré et sauvegardé dans modey-server.json.');
+    }
+    logger.success('Manifeste et options Launcher synchronisés avec succès !');
+    if (result.accountPolicy) {
+      logger.info(`Politique de comptes effective : ${bold(cyan(result.accountPolicy))}`);
     }
   } else {
     logger.error('La synchronisation a échoué :', result.error || 'Erreur inconnue');

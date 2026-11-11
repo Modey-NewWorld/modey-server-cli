@@ -44,11 +44,30 @@ L'assistant s'occupe ensuite de tout automatiquement :
 3. Création de `eula.txt`, `server.properties`, `client-files/`, `start.bat` et `start.sh`.
 
 ### Relier un serveur au réseau Modey (validation propriétaire)
-Lorsque l'équipe Modey crée ou valide une fiche serveur pour votre infrastructure, il suffit d'exécuter une fois dans le dossier du serveur :
+Lorsque l'équipe Modey crée une fiche serveur Tiers pour votre infrastructure dans l'Admin Panel, elle vous remet un **jeton temporaire de liaison** (`node_token`, avec une durée de validité configurable avant la première connexion). Exécutez une fois dans le dossier du serveur avant expiration :
 
 ```bash
 npx github:Modey-NewWorld/modey-server-cli link <votre_node_token>
 ```
+
+> Une fois le premier `link` confirmé, le jeton devient actif durablement et votre slug réservé reste aligné avec la fiche Modey. Si le jeton expire avant la première liaison, demandez simplement à un administrateur de le régénérer.
+
+---
+
+## ⚖️ Différences : Serveur Privé / Local vs Réseau Modey
+
+| Critère | Privé / Local (`standalone: true`) | Réseau Modey (`standalone: false`) |
+| :--- | :--- | :--- |
+| **Découverte & Annuaire** | ❌ Jamais affiché dans l'annuaire public du Launcher Modey. | ✅ Affiché selon la visibilité décidée par Modey (`PUBLIC`, `PROTECTED` ou `HIDDEN` par slug). |
+| **Inscription & Jeton (`node_token`)** | Aucune communication avec l'API Modey (`api_url` vide), aucun jeton requis. | Nécessite une pré-création par l'Admin Modey et un `node_token` valide (avec durée de validité avant le premier `link`). |
+| **Réservation du Slug** | Slug purement local dans `modey-server.json`. Aucun conflit possible. | Slug réservé et souverain côté Modey Admin (un administrateur peut renommer le slug ; le CLI s'aligne automatiquement). |
+| **Mot de passe d'accès** | 🔐 **Obligatoire** (min. 4 car. ou généré aléatoirement au démarrage). | Optionnel sur serveur public ; obligatoire si le serveur est `PROTECTED` / privé. |
+| **Compte Minecraft / Microsoft** | 🟩 **Compte Minecraft vérifié requis** par défaut (vérifié côté Auth / Yggdrasil). | Configurable : `microsoft_required` par défaut ; seuls les serveurs **Officiels** ou **Vérifiés** peuvent recevoir `modey` ou `hybrid` de l'Admin. **Si l'hôte exige Minecraft (`requires_minecraft: true`) et que Modey ne l'imposait pas, la règle la plus restrictive s'applique (`microsoft_required`).** |
+| **Télémétrie & Statut en ligne** | Joueurs / statut interrogés uniquement en direct par les joueurs autorisés (via IP + mot de passe). | Heartbeats toutes les 30s vers `/api/nodes/heartbeat` (joueurs, RAM, ping, version). |
+| **Sécurité Files-Updater (port `3008`)** | Protégé par jeton **HMAC-SHA256** signé (`?token=`) issu de votre `private_password_hash` (fail-closed : 403/401 sans mot de passe). | Idem : accès `client-files/` chiffré/signé par jeton de profil ou mot de passe serveur, avec blocage path traversal. |
+| **Cas d'usage typique** | Serveur entre amis, LAN/Hamachi/IP directe, tests privés. | Serveur partenaire, communautaire ou événementiel intégré à l'écosystème Modey. |
+
+---
 
 ### Option B — Installation globale (`modey-server`)
 
@@ -74,6 +93,7 @@ Après `init` ou `install`, deux scripts sont automatiquement générés à la r
 | `modey-server init` | Lance l'assistant de configuration interactif (`--non-interactive` supporté). |
 | `modey-server install` | Crée `/mods`, `/config`, `/client-files`, installe `authlib-injector.jar`, accepte `eula.txt`, télécharge/installe le loader et crée `start.bat`/`start.sh`. |
 | `modey-server link <token>` | Confirme la liaison du serveur avec votre fiche Modey pour activer la visibilité et la télémétrie. |
+| `modey-server password [mdp]` | Définit, régénère ou supprime (si autorisé) le mot de passe d'accès privé avec rotation immédiate. |
 | `modey-server update` | Met à jour le CLI, `authlib-injector.jar` et les scripts `start.bat`/`start.sh`. |
 | `modey-server sync` | Envoie le contenu de `modey-server.json` vers l'API centrale Modey (optionnel). |
 | `modey-server run` | Démarre le serveur Minecraft (`java`), le Files-Updater HTTP et la télémétrie (si configurée). |
@@ -90,7 +110,7 @@ Le fichier généré à la racine de votre serveur ressemble à ceci :
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "identity": {
     "name": "Modey Survie RP",
     "slug": "survie-rp",
@@ -106,13 +126,15 @@ Le fichier généré à la racine de votre serveur ressemble à ceci :
   "auth": {
     "standalone": false,
     "api_url": "https://api.modey.flowcrea.fr",
-    "node_token": "nd_sec_7a8b9c..."
+    "node_token": "srv_node_7a8b9c...",
+    "require_password": false,
+    "requires_minecraft": true
   },
   "launcherOptions": {
     "status": "online",
     "description": "Serveur Survie RP propulsé par la communauté Modey.",
     "tags": ["Survie", "Roleplay", "Économie"],
-    "account_policy": "modey",
+    "account_policy": "microsoft_required",
     "enforce_hash_integrity": true,
     "access_mode": "normal"
   },
@@ -125,9 +147,11 @@ Le fichier généré à la racine de votre serveur ressemble à ceci :
 
 ---
 
-## 🔒 Sécurité & Launch Guard
+## 🔒 Sécurité, Port `3008` & Souveraineté Réseau
 
-Lorsque `enforce_hash_integrity` est activé sur un serveur protégé ou officiel, le CLI et le mod serveur valident chaque connexion de joueur auprès de l'endpoint central `/api/nodes/verify-session`. Les tentatives de connexion avec des clients altérés ou des profils locaux non certifiés sont ainsi rejetées automatiquement.
+- **Port `25565` (Minecraft) & `3008` (Files-Updater)** : Le port `3008` sert uniquement `client-files/` et `/api/ping`. Il rejette toute traversée de répertoire (`..`), vérifie les empreintes SHA-256 côté client et, dès qu'un mot de passe d'accès est actif (`Privé / Local` ou serveur protégé), exige un jeton `?token=` signé en **HMAC-SHA256** (fail-closed : toute requête non authentifiée reçoit `401`/`403`).
+- **Souveraineté Modey & Politique Combinée** : Modey Admin garde le contrôle final de la certification (`Officiel` / `Vérifié`), du **slug** réservé et de la visibilité Launcher. La politique d'accès aux comptes associe la décision Modey et la préférence de l'hébergeur (`auth.requires_minecraft`) selon la règle **du plus restrictif**.
+- **Launch Guard** : Lorsque `enforce_hash_integrity` est activé sur un serveur protégé ou officiel, le CLI et le mod serveur valident chaque connexion de joueur auprès de `/api/nodes/verify-session`.
 
 ---
 

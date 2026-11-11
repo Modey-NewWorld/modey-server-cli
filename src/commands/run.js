@@ -51,7 +51,7 @@ async function runCommand(args = {}) {
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY && !args.daemonOnly)
   });
 
-  const slug = config.identity?.slug;
+  let slug = config.identity?.slug;
   const serverName = config.identity?.name || slug;
   const token = config.auth?.node_token || '';
   const apiUrl = config.auth?.standalone === true ? '' : (config.auth?.api_url || DEFAULT_AUTH_URL);
@@ -176,10 +176,22 @@ async function runCommand(args = {}) {
       };
 
       const res = await client.sendHeartbeat(heartbeatData);
+      let dirtyConfig = false;
+      if (res.slug && res.slug !== slug) {
+        slug = res.slug;
+        config.id = res.slug;
+        config.slug = res.slug;
+        if (config.identity) config.identity.slug = res.slug;
+        dirtyConfig = true;
+        if (!useTui) logger.info(`Slug aligné sur la fiche Modey : ${bold(cyan(slug))}`);
+      }
       const returnedToken = res.node_token || res.token;
       if (returnedToken && !config.auth?.node_token) {
         config.auth = { ...(config.auth || {}), node_token: returnedToken, linked: false };
         client.nodeToken = returnedToken;
+        dirtyConfig = true;
+      }
+      if (dirtyConfig) {
         await saveConfig(config).catch(() => {});
       }
 
