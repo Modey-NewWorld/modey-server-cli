@@ -113,6 +113,17 @@ class ModeyApiClient {
       ? Boolean(manifest.auth.requires_minecraft)
       : (manifest?.launcherOptions?.account_policy === 'microsoft_required');
 
+    const safeManifest = manifest ? { ...manifest } : {};
+    if (safeManifest.auth && typeof safeManifest.auth === 'object') {
+      const {
+        private_password: _pp,
+        private_password_hash: _pph,
+        private_password_version: _ppv,
+        ...restAuth
+      } = safeManifest.auth;
+      safeManifest.auth = restAuth;
+    }
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -130,7 +141,7 @@ class ModeyApiClient {
         requiresMinecraft: explicitReqMc,
         accountPolicy: explicitReqMc ? 'microsoft_required' : (manifest?.launcherOptions?.account_policy || 'modey'),
         manifest: {
-          ...manifest,
+          ...safeManifest,
           id: serverSlug,
           slug: serverSlug,
           updater_port: updaterPort,

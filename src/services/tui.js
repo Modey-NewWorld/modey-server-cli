@@ -82,14 +82,16 @@ class ServerTui {
       loader: options.loader || 'neoforge',
       loaderVersion: options.loaderVersion || '',
       port: options.port || 25565,
-      cliVersion: options.cliVersion || '1.4.1',
+      cliVersion: options.cliVersion || '1.4.2',
       status: 'starting',
       playersOnline: 0,
       playersMax: 20,
       ramUsedMb: 0,
       updaterUrl: options.updaterUrl || '',
       yggdrasilActive: Boolean(options.yggdrasilActive),
-      authStatus: options.authStatus || 'En attente Auth'
+      authStatus: options.authStatus || 'En attente Auth',
+      passwordRequired: Boolean(options.passwordRequired),
+      accessPassword: options.accessPassword || ''
     };
 
     this.logs = [];
@@ -224,8 +226,11 @@ class ServerTui {
       `Etat: ${statusLabel}   Joueurs: ${bold(`${s.playersOnline}/${s.playersMax}`)}   RAM: ${bold(`${s.ramUsedMb || 0} Mo`)}   ${s.loader} ${s.loaderVersion} (${s.mcVersion}) :${s.port}`,
       innerWidth
     )} ${gray('│')}`);
+    const pwdSegment = s.passwordRequired
+      ? `   Mdp: ${bold(yellow(s.accessPassword || 'configuré (/password)'))}`
+      : '';
     lines.push(`${gray('│')} ${fitVisible(
-      `SSO: ${ssoBadge}   Updater: ${updaterTxt}   Auth: ${s.authStatus}`,
+      `SSO: ${ssoBadge}   Updater: ${updaterTxt}   Auth: ${s.authStatus}${pwdSegment}`,
       innerWidth
     )} ${gray('│')}`);
     lines.push(gray('╰' + '─'.repeat(Math.max(10, cols - 2)) + '╯'));

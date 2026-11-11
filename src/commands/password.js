@@ -48,7 +48,16 @@ async function ensureRequiredServerPassword(config, {
   }
 
   if (String(config.auth?.private_password_hash || '').trim()) {
-    return { updated: false, generated: false, password: '', config };
+    if (config.auth.require_password !== true) {
+      config.auth.require_password = true;
+      await saveConfig(config, serverDir);
+    }
+    return {
+      updated: false,
+      generated: false,
+      password: String(config.auth?.private_password || ''),
+      config
+    };
   }
 
   let chosenPassword = typeof password === 'string' ? password.trim() : '';
@@ -78,6 +87,7 @@ async function ensureRequiredServerPassword(config, {
   const version = generatePasswordVersion();
   config.auth = config.auth || {};
   config.auth.require_password = true;
+  config.auth.private_password = chosenPassword;
   config.auth.private_password_hash = hashAccessPassword(chosenPassword);
   config.auth.private_password_version = version;
 
@@ -125,6 +135,7 @@ async function passwordCommand(options = {}) {
   const version = generatePasswordVersion();
   config.auth = config.auth || {};
   config.auth.require_password = true;
+  config.auth.private_password = newPassword;
   config.auth.private_password_hash = hashAccessPassword(newPassword);
   config.auth.private_password_version = version;
 

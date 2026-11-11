@@ -30,7 +30,17 @@ function generateRandomAccessPassword(length = 12) {
 }
 
 function isPasswordRequiredForConfig(config = null) {
-  return Boolean(config?.auth?.standalone || config?.auth?.require_password);
+  if (!config) return false;
+  const vis = String(config?.launcherOptions?.visibility || config?.visibility || '').toUpperCase();
+  const legacyLocal = Boolean(!config?.auth?.api_url && !config?.auth?.node_token && config?.auth?.standalone !== false);
+  return Boolean(
+    config?.auth?.standalone === true
+    || config?.auth?.require_password === true
+    || config?.auth?.private === true
+    || vis === 'PROTECTED'
+    || vis === 'HIDDEN'
+    || legacyLocal
+  );
 }
 
 function verifyAccessPassword(password, storedHash) {
@@ -217,6 +227,7 @@ function createDefaultConfig({
       node_token: resolvedToken,
       require_password: Boolean(isStandalone || resolvedPasswordHash),
       requires_minecraft: Boolean(requiresMinecraft),
+      ...(privatePassword ? { private_password: String(privatePassword) } : {}),
       ...(resolvedPasswordHash ? {
         private_password_hash: resolvedPasswordHash,
         private_password_version: resolvedPasswordVersion

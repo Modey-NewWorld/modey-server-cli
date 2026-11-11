@@ -334,7 +334,7 @@ async function initCommand(args = {}) {
       apiUrl: args.apiUrl || DEFAULT_AUTH_URL,
       nodeToken: args.nodeToken || '',
       standalone: Boolean(args.standalone),
-      privatePassword: effectivePwd,
+      privatePassword: effectivePwd || existing?.auth?.private_password || '',
       privatePasswordHash: !effectivePwd ? (existing?.auth?.private_password_hash || '') : '',
       privatePasswordVersion: !effectivePwd ? (existing?.auth?.private_password_version || '') : '',
       requiresMinecraft: args.requiresMinecraft !== undefined ? Boolean(args.requiresMinecraft) : true,
@@ -399,6 +399,7 @@ async function initCommand(args = {}) {
               }
             }
           } else {
+            privatePassword = existing.auth.private_password || '';
             privatePasswordHash = existing.auth.private_password_hash;
             privatePasswordVersion = existing.auth.private_password_version || '';
           }
@@ -435,6 +436,7 @@ async function initCommand(args = {}) {
             privatePassword = optPwd;
           }
         } else if (existing?.auth?.private_password_hash) {
+          privatePassword = existing.auth.private_password || '';
           privatePasswordHash = existing.auth.private_password_hash;
           privatePasswordVersion = existing.auth.private_password_version || '';
         }

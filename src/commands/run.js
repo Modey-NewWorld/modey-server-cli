@@ -6,7 +6,15 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { loadConfig, saveConfig, DEFAULT_AUTH_URL } = require('../config.js');
+const {
+  loadConfig,
+  saveConfig,
+  DEFAULT_AUTH_URL,
+  isPasswordRequiredForConfig,
+  hashAccessPassword,
+  generatePasswordVersion,
+  generateRandomAccessPassword
+} = require('../config.js');
 const { ModeyApiClient } = require('../services/api.js');
 const { getSystemMemory, pingMinecraftServer } = require('../services/monitor.js');
 const { startUpdaterServer, resolveLocalVisualUrls } = require('../services/updaterServer.js');
@@ -50,6 +58,20 @@ async function runCommand(args = {}) {
     serverDir: process.cwd(),
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY && !args.daemonOnly)
   });
+
+  // Barrière stricte pré-démarrage : si un mot de passe est obligatoire, refuser tout lancement sans hash valide
+  if (isPasswordRequiredForConfig(config) && !String(config.auth?.private_password_hash || '').trim()) {
+    const emergencyPwd = generateRandomAccessPassword();
+    config.auth = config.auth || {};
+    config.auth.require_password = true;
+    config.auth.private_password = emergencyPwd;
+    config.auth.private_password_hash = hashAccessPassword(emergencyPwd);
+    config.auth.private_password_version = generatePasswordVersion();
+    await saveConfig(config, process.cwd());
+    pwdEnsure.updated = true;
+    pwdEnsure.generated = true;
+    pwdEnsure.password = emergencyPwd;
+  }
 
   let slug = config.identity?.slug;
   const serverName = config.identity?.name || slug;
@@ -100,6 +122,7 @@ async function runCommand(args = {}) {
   let updaterHandle = null;
   const clientFilesDir = path.resolve(process.cwd(), 'client-files');
   const shouldStartUpdater = config.modpack?.enabled === true ||
+    isPasswordRequiredForConfig(config) ||
     (config.modpack?.enabled !== false && fs.existsSync(clientFilesDir));
   if (shouldStartUpdater) {
     try {
@@ -286,6 +309,8 @@ async function runCommand(args = {}) {
 
   // Initialisation TUI si interactif
   if (useTui) {
+    const passwordRequired = isPasswordRequiredForConfig(config);
+    const activePassword = pwdEnsure?.password || config.auth?.private_password || '';
     tui = new ServerTui({
       name: serverName,
       slug,
@@ -297,13 +322,32 @@ async function runCommand(args = {}) {
       updaterUrl: updaterHandle?.url || '',
       yggdrasilActive: launchSpec.yggdrasilInjected,
       authStatus: client ? (config.auth?.linked ? green('✓ Lié Auth') : yellow('◐ Connexion Auth...')) : gray('Hors ligne'),
+      passwordRequired,
+      accessPassword: activePassword,
       onStop: async () => {
         await shutdown();
         setTimeout(() => process.exit(0), 2500);
       },
       onCommand: async (input) => {
         if (input === '/help') {
-          logger.info(`${bold('Commandes Modey :')} /status, /link <token>, /clear, /stop — Sinon tapez toute commande Minecraft (ex: list, op, say).`);
+          logger.info(`${bold('Commandes Modey :')} /status, /password <mdp>, /link <token>, /clear, /stop — Sinon tapez toute commande Minecraft (ex: list, op, say).`);
+          return;
+        }
+        if (input === '/password' || input.startsWith('/password ')) {
+          const nextPwd = input.slice(9).trim();
+          if (!nextPwd || nextPwd.length < 4) {
+            logger.warn(`Utilisation : ${cyan('/password <mot_de_passe>')} (minimum 4 caractères). Mot de passe actuel : ${bold(yellow(config.auth?.private_password || 'non affiché'))}`);
+            return;
+          }
+          const ver = generatePasswordVersion();
+          config.auth = config.auth || {};
+          config.auth.require_password = true;
+          config.auth.private_password = nextPwd;
+          config.auth.private_password_hash = hashAccessPassword(nextPwd);
+          config.auth.private_password_version = ver;
+          await saveConfig(config, process.cwd());
+          tui.updateState({ passwordRequired: true, accessPassword: nextPwd });
+          logger.success(`Mot de passe privé mis à jour en direct : ${bold(green(nextPwd))} (version ${ver}).`);
           return;
         }
         if (input === '/clear') {

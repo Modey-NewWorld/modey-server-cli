@@ -453,3 +453,62 @@ test('Policy & Sync: createDefaultConfig requiresMinecraft et syncMetadata + ali
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('TUI & Sécurité: ServerTui affiche le mot de passe près de Auth et syncMetadata le retire du manifeste distant', async () => {
+  const { isPasswordRequiredForConfig } = require('../src/config.js');
+  const http = require('http');
+
+  const tuiWithPwd = new ServerTui({
+    name: 'Planity',
+    slug: 'planity',
+    cliVersion: '1.4.2',
+    authStatus: 'Hors ligne',
+    passwordRequired: true,
+    accessPassword: 'SecretPlanity99'
+  });
+  const headerPlain = tuiWithPwd.buildHeaderLines(120, 30).map((l) => stripAnsi(l)).join('\n');
+  assert.match(headerPlain, /Auth: Hors ligne\s+Mdp: SecretPlanity99/);
+
+  const tuiPublic = new ServerTui({
+    name: 'PublicWorld',
+    slug: 'public-world',
+    cliVersion: '1.4.2',
+    authStatus: '✓ Lié Auth',
+    passwordRequired: false
+  });
+  const publicPlain = tuiPublic.buildHeaderLines(120, 30).map((l) => stripAnsi(l)).join('\n');
+  assert.equal(publicPlain.includes('Mdp:'), false);
+
+  assert.equal(isPasswordRequiredForConfig({ auth: { standalone: false }, launcherOptions: { visibility: 'PROTECTED' } }), true);
+  assert.equal(isPasswordRequiredForConfig({ auth: { api_url: '', node_token: '' } }), true);
+
+  let sentManifest = null;
+  const mockApi = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      sentManifest = JSON.parse(raw || '{}');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
+    });
+  });
+  await new Promise((resolve) => mockApi.listen(0, '127.0.0.1', resolve));
+  const { port } = mockApi.address();
+  try {
+    const conf = createDefaultConfig({
+      slug: 'priv-sync',
+      standalone: false,
+      apiUrl: `http://127.0.0.1:${port}`,
+      nodeToken: 'tok-abc',
+      privatePassword: 'HostOnlyPassword123'
+    });
+    assert.equal(conf.auth.private_password, 'HostOnlyPassword123');
+    const client = new ModeyApiClient(`http://127.0.0.1:${port}`, 'tok-abc');
+    await client.syncMetadata('priv-sync', conf);
+    assert.equal(sentManifest.manifest.auth.private_password, undefined);
+    assert.equal(sentManifest.manifest.auth.private_password_hash, undefined);
+    assert.equal(sentManifest.manifest.auth.private_password_version, undefined);
+  } finally {
+    await new Promise((resolve) => mockApi.close(resolve));
+  }
+});
