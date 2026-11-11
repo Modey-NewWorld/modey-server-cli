@@ -45,6 +45,10 @@ class ModeyApiClient {
    */
   async syncMetadata(serverSlug, manifest) {
     const url = `${this.baseUrl}/api/nodes/sync-metadata`;
+    const modpack = manifest?.modpack || {};
+    const updaterPort = modpack.enabled !== false ? Number(modpack.updater_port || 0) || undefined : undefined;
+    const updaterUrl = modpack.public_updater_url ? String(modpack.public_updater_url).trim() : undefined;
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -56,10 +60,14 @@ class ModeyApiClient {
         server_slug: serverSlug,
         token: this.nodeToken,
         node_token: this.nodeToken,
+        updater_port: updaterPort,
+        updater_url: updaterUrl,
         manifest: {
           ...manifest,
           id: serverSlug,
-          slug: serverSlug
+          slug: serverSlug,
+          updater_port: updaterPort,
+          updater_url: updaterUrl
         }
       })
     });

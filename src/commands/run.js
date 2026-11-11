@@ -4,10 +4,12 @@
  */
 
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const { loadConfig } = require('../config.js');
 const { ModeyApiClient } = require('../services/api.js');
 const { getSystemMemory, pingMinecraftServer } = require('../services/monitor.js');
+const { startUpdaterServer } = require('../services/updaterServer.js');
 const logger = require('../utils/logger.js');
 const { bold, cyan, green, yellow, red, gray } = require('../utils/colors.js');
 
@@ -31,6 +33,25 @@ async function runCommand(args = {}) {
   const publicIp = config.network?.public_ip || '';
 
   const client = new ModeyApiClient(apiUrl, token);
+
+  let updaterHandle = null;
+  const clientFilesDir = path.resolve(process.cwd(), 'client-files');
+  const shouldStartUpdater = config.modpack?.enabled === true ||
+    (config.modpack?.enabled !== false && fs.existsSync(clientFilesDir));
+  if (shouldStartUpdater) {
+    try {
+      const updaterPort = Number(config.modpack?.updater_port || 3008);
+      updaterHandle = await startUpdaterServer({
+        serverDir: process.cwd(),
+        port: updaterPort,
+        slug,
+        publicUrl: config.modpack?.public_updater_url || ''
+      });
+      logger.info(`Files-Updater actif : ${green(updaterHandle.url)}`);
+    } catch (updErr) {
+      logger.warn(`Impossible de démarrer Files-Updater local : ${updErr.message}`);
+    }
+  }
 
   // Fonction pour envoyer un heartbeat
   const sendTick = async (overrideStatus = null) => {
@@ -84,6 +105,7 @@ async function runCommand(args = {}) {
     const cleanup = async () => {
       clearInterval(interval);
       logger.info('Arrêt du daemon...');
+      if (updaterHandle) await updaterHandle.close().catch(() => {});
       await sendTick('offline');
       process.exit(0);
     };
@@ -115,6 +137,7 @@ async function runCommand(args = {}) {
   const shutdown = async () => {
     clearInterval(heartbeatTimer);
     logger.info('Arrêt du serveur en cours...');
+    if (updaterHandle) await updaterHandle.close().catch(() => {});
     await sendTick('offline');
     try {
       serverProc.kill('SIGINT');
@@ -134,6 +157,7 @@ async function runCommand(args = {}) {
   serverProc.on('exit', async (code) => {
     clearInterval(heartbeatTimer);
     logger.info(`Le serveur Minecraft s'est arrêté avec le code ${code}.`);
+    if (updaterHandle) await updaterHandle.close().catch(() => {});
     await sendTick('offline');
     process.exit(code || 0);
   });

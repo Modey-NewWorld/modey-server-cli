@@ -16,6 +16,7 @@ ${bold('COMMANDES DISPONIBLES :')}
   ${cyan('install')}   Télécharge le loader (Paper, Fabric, NeoForge) et accepte l'EULA
   ${cyan('sync')}      Synchronise le manifeste local avec l'Admin Panel et l'API centrale
   ${cyan('run')}       Lance le serveur Minecraft avec la télémétrie Heartbeat en arrière-plan
+  ${cyan('updater')}   Démarre uniquement le serveur HTTP Files-Updater (dossier client-files/)
   ${cyan('status')}    Affiche le statut en direct de votre nœud vu par le réseau Modey
   ${cyan('help')}      Affiche ce message d'aide
 

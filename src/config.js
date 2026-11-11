@@ -94,6 +94,11 @@ function createDefaultConfig({
       api_url: apiUrl,
       node_token: nodeToken
     },
+    modpack: {
+      enabled: true,
+      updater_port: 3008,
+      public_updater_url: ''
+    },
     launcherOptions: {
       status: 'online',
       description: `Serveur ${name} propulsé par le réseau décentralisé Modey.`,

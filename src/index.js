@@ -9,6 +9,7 @@ const { installCommand } = require('./commands/install.js');
 const { syncCommand } = require('./commands/sync.js');
 const { runCommand } = require('./commands/run.js');
 const { statusCommand } = require('./commands/status.js');
+const { updaterCommand } = require('./commands/updater.js');
 const { helpCommand } = require('./commands/help.js');
 const pkg = require('../package.json');
 
@@ -91,6 +92,14 @@ async function main(argv = process.argv.slice(2)) {
       await statusCommand({
         slug: parsed.slug,
         apiUrl: parsed['api-url']
+      });
+      break;
+
+    case 'updater':
+      await updaterCommand({
+        slug: parsed.slug,
+        port: parsed.port || parsed['updater-port'],
+        publicUrl: parsed['public-url']
       });
       break;
 
