@@ -128,21 +128,31 @@ async function runCommand(args = {}) {
         ping = await pingMinecraftServer(publicIp, port, 2500);
       }
 
-      const status = overrideStatus || (ping.online ? 'online' : 'starting');
+      const status = overrideStatus ? String(overrideStatus).toUpperCase() : (ping.online ? 'ONLINE' : 'STARTING');
       const heartbeatData = {
         server_slug: slug,
         name: serverName,
         status,
+        playersOnline: ping.playersOnline,
         players_online: ping.playersOnline,
+        playersMax: ping.playersMax,
         players_max: ping.playersMax,
         tps: 20.0,
+        ramUsedMb: mem.usedMb,
         ram_used_mb: mem.usedMb,
+        ramTotalMb: mem.totalMb,
         ram_total_mb: mem.totalMb,
+        pingMs: ping.latency > 0 ? ping.latency : 0,
         ping_ms: ping.latency > 0 ? ping.latency : 0,
+        mcVersion,
         mc_version: mcVersion,
+        loaderType: loader,
         loader_type: loader,
+        loaderVersion,
         loader_version: loaderVersion,
+        publicIp,
         public_ip: publicIp,
+        publicPort: port,
         public_port: port,
         updaterUrl: updaterHandle?.url || config.modpack?.public_updater_url || ''
       };

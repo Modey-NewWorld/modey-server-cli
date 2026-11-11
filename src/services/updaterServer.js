@@ -80,7 +80,7 @@ function scanDirectory(baseDir, currentRel, baseUrl, urlPrefix = '') {
   return results;
 }
 
-function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server') {
+function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server', serverMeta = null) {
   const cleanBase = String(publicBaseUrl || '').replace(/\/+$/, '');
   const emptyManifest = {
     success: true,
@@ -159,6 +159,9 @@ function buildClientFilesManifest(clientFilesDir, publicBaseUrl, slug = 'server'
     success: true,
     slug,
     version: distConfig.version || '1.0.0',
+    ...(serverMeta?.minecraftVersion ? { minecraftVersion: serverMeta.minecraftVersion } : {}),
+    ...(serverMeta?.loader ? { loader: serverMeta.loader } : {}),
+    ...(serverMeta?.loaderVersion ? { loaderVersion: serverMeta.loaderVersion } : {}),
     slots: emptyManifest.slots,
     defaultFolders: emptyManifest.defaultFolders,
     cleaningIgnored: Array.isArray(distConfig.cleaningIgnored) ? distConfig.cleaningIgnored : [],
@@ -346,7 +349,8 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
 
     if (reqPath === '/files-updater' || reqPath.startsWith('/files-updater/')) {
       const baseUrl = normalizePublicBaseUrl(publicUrl, req);
-      const manifest = buildClientFilesManifest(clientFilesDir, baseUrl, slug);
+      const serverMeta = buildServerMetaPayload(serverDir, baseUrl, slug);
+      const manifest = buildClientFilesManifest(clientFilesDir, baseUrl, slug, serverMeta);
       const payload = JSON.stringify(manifest);
       const hash = crypto.createHash('md5').update(payload).digest('hex');
       const etag = `"${hash}"`;
