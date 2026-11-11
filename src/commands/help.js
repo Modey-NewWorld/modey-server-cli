@@ -15,6 +15,8 @@ ${bold('COMMANDES DISPONIBLES :')}
   ${cyan('setup')}     Assistant tout-en-un : configure, installe et propose le démarrage
   ${cyan('install')}   Installe le serveur (lance la config si modey-server.json absent)
   ${cyan('init')}      Génère ou met à jour uniquement modey-server.json
+  ${cyan('link')}      Confirme la liaison avec Modey via un jeton (ex: modey-server link <token>)
+  ${cyan('update')}    Met à jour le CLI, authlib-injector et les scripts de démarrage
   ${cyan('sync')}      Synchronise le manifeste local avec l'API centrale Modey (optionnel)
   ${cyan('run')}       Lance le serveur Minecraft, Files-Updater et la télémétrie
   ${cyan('updater')}   Démarre uniquement le serveur HTTP Files-Updater (dossier client-files/)

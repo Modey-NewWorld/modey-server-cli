@@ -40,8 +40,15 @@ npx github:Modey-NewWorld/modey-server-cli
 
 L'assistant s'occupe ensuite de tout automatiquement :
 1. Choix du nom, version Minecraft et type de serveur (**NeoForge**, **Fabric**, **PaperMC** ou **Vanilla**) + RAM.
-2. Téléchargement du serveur officiel / installeur et installation complète.
+2. Téléchargement du serveur officiel / installeur et installation de **`authlib-injector.jar`** (authentification Modey Yggdrasil SSO prête par défaut).
 3. Création de `eula.txt`, `server.properties`, `client-files/`, `start.bat` et `start.sh`.
+
+### Relier un serveur au réseau Modey (validation propriétaire)
+Lorsque l'équipe Modey crée ou valide une fiche serveur pour votre infrastructure, il suffit d'exécuter une fois dans le dossier du serveur :
+
+```bash
+npx github:Modey-NewWorld/modey-server-cli link <votre_node_token>
+```
 
 ### Option B — Installation globale (`modey-server`)
 
@@ -64,8 +71,10 @@ Après `init` ou `install`, deux scripts sont automatiquement générés à la r
 
 | Commande | Description |
 | :--- | :--- |
-| `modey-server init` | Lance l'assistant de configuration interactif (`--standalone` pour un serveur 100% privé/local). |
-| `modey-server install` | Crée `/mods`, `/config`, `/client-files`, accepte `eula.txt`, télécharge/installe le loader (`.jar` ou NeoForge) et crée `start.bat`/`start.sh`. |
+| `modey-server init` | Lance l'assistant de configuration interactif (`--non-interactive` supporté). |
+| `modey-server install` | Crée `/mods`, `/config`, `/client-files`, installe `authlib-injector.jar`, accepte `eula.txt`, télécharge/installe le loader et crée `start.bat`/`start.sh`. |
+| `modey-server link <token>` | Confirme la liaison du serveur avec votre fiche Modey pour activer la visibilité et la télémétrie. |
+| `modey-server update` | Met à jour le CLI, `authlib-injector.jar` et les scripts `start.bat`/`start.sh`. |
 | `modey-server sync` | Envoie le contenu de `modey-server.json` vers l'API centrale Modey (optionnel). |
 | `modey-server run` | Démarre le serveur Minecraft (`java`), le Files-Updater HTTP et la télémétrie (si configurée). |
 | `modey-server run --daemon-only` | Exécute uniquement la télémétrie et le Files-Updater si le serveur tourne déjà sous **systemd**, **Docker** ou **Pterodactyl**. |

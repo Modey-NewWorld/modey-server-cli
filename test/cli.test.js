@@ -93,28 +93,33 @@ test('Runtime: resolveJavaLaunchSpec détecte NeoForge (win_args/unix_args) et s
     assert.equal(jarSpec.mode, 'jar');
     assert.deepEqual(jarSpec.args, ['-Xmx2G', '-jar', 'server.jar', 'nogui']);
 
-    // 3. NeoForge libraries/net/neoforged/neoforge/<ver>/{win,unix}_args.txt
+    // 3. NeoForge libraries/net/neoforged/neoforge/<ver>/{win,unix}_args.txt + authlib-injector
     const neoDir = path.join(tmpDir, 'libraries', 'net', 'neoforged', 'neoforge', '21.1.265');
     await fs.mkdir(neoDir, { recursive: true });
     await fs.writeFile(path.join(neoDir, 'win_args.txt'), '-cp stub');
     await fs.writeFile(path.join(neoDir, 'unix_args.txt'), '-cp stub');
+    await fs.writeFile(path.join(tmpDir, 'authlib-injector.jar'), 'stub');
 
     const neoWin = resolveJavaLaunchSpec(tmpDir, {
       identity: { loader: 'neoforge', loader_version: '21.1.265' },
       runtime: { java_args: ['-Xms1G', '-Xmx4G'] }
     }, 'win32');
     assert.equal(neoWin.mode, 'args-file');
+    assert.equal(neoWin.yggdrasilInjected, true);
     assert.deepEqual(neoWin.args, [
       '-Xms1G',
       '-Xmx4G',
+      '-javaagent:authlib-injector.jar=https://api.modey.flowcrea.fr/api/yggdrasil',
       '@libraries/net/neoforged/neoforge/21.1.265/win_args.txt',
       'nogui'
     ]);
 
     const neoLinux = resolveJavaLaunchSpec(tmpDir, {
       identity: { loader: 'neoforge', loader_version: '21.1.265' },
+      auth: { yggdrasil_enabled: false },
       runtime: { java_args: ['-Xms1G', '-Xmx4G'] }
     }, 'linux');
+    assert.equal(neoLinux.yggdrasilInjected, false);
     assert.deepEqual(neoLinux.args, [
       '-Xms1G',
       '-Xmx4G',

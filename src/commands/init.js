@@ -129,20 +129,6 @@ async function initCommand(args = {}) {
       const ramInput = await ask(rl, 'Mémoire RAM max allouée (ex: 4G, 2G)', '4G');
       const javaArgs = normalizeRamJavaArgs(ramInput);
 
-      console.log('');
-      console.log(`  ${bold('Mode réseau :')}`);
-      console.log(`    ${cyan('1)')} Privé / Local     ${gray('(autonome sur votre PC, sans API externe)')}`);
-      console.log(`    ${cyan('2)')} Réseau Modey      ${gray('(connecté à https://api.modey.flowcrea.fr)')}`);
-      const netMode = await ask(rl, 'Mode [1-2]', existing?.auth?.standalone === false ? '2' : '1');
-      const standalone = netMode.trim() !== '2' && !/^o(ui)?$/i.test(netMode.trim());
-
-      let apiUrl = '';
-      let nodeToken = '';
-      if (!standalone) {
-        apiUrl = await ask(rl, 'URL de l\'API Modey', existing?.auth?.api_url || DEFAULT_AUTH_URL);
-        nodeToken = await ask(rl, 'Token du nœud (optionnel — Entrée si aucun)', existing?.auth?.node_token || '');
-      }
-
       configData = {
         name,
         slug,
@@ -151,9 +137,10 @@ async function initCommand(args = {}) {
         loaderVersion,
         port: Number(port) || 25565,
         publicIp,
-        apiUrl,
-        nodeToken,
-        standalone,
+        apiUrl: existing?.auth?.api_url || DEFAULT_AUTH_URL,
+        nodeToken: existing?.auth?.node_token || '',
+        linked: Boolean(existing?.auth?.linked || existing?.auth?.node_token),
+        standalone: false,
         javaArgs
       };
     } finally {

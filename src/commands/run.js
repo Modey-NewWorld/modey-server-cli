@@ -11,8 +11,11 @@ const { ModeyApiClient } = require('../services/api.js');
 const { getSystemMemory, pingMinecraftServer } = require('../services/monitor.js');
 const { startUpdaterServer } = require('../services/updaterServer.js');
 const { resolveJavaLaunchSpec } = require('../services/runtime.js');
+const { ensureAuthlibInjector } = require('../services/installer.js');
+const { DEFAULT_AUTH_URL } = require('../config.js');
 const logger = require('../utils/logger.js');
 const { bold, cyan, green, yellow, red, gray } = require('../utils/colors.js');
+const pkg = require('../../package.json');
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 
@@ -25,16 +28,48 @@ async function runCommand(args = {}) {
   }
 
   const slug = config.identity?.slug;
-  const token = config.auth?.node_token;
-  const apiUrl = config.auth?.api_url;
+  const token = config.auth?.node_token || '';
+  const apiUrl = config.auth?.api_url || (config.auth?.standalone ? '' : DEFAULT_AUTH_URL);
   const port = config.network?.port || 25565;
   const mcVersion = config.identity?.minecraft_version || '1.21.1';
   const loader = config.identity?.loader || 'neoforge';
   const loaderVersion = config.identity?.loader_version || '';
   const publicIp = config.network?.public_ip || '';
 
-  const isStandalone = config.auth?.standalone === true || !apiUrl;
-  const client = isStandalone ? null : new ModeyApiClient(apiUrl, token);
+  const isLinked = Boolean(token && apiUrl && config.auth?.standalone !== true);
+  const policyClient = apiUrl ? new ModeyApiClient(apiUrl, token) : null;
+  const client = isLinked ? policyClient : null;
+
+  // Vérification de la politique CLI Modey (blocage / mise à jour obligatoire)
+  if (policyClient) {
+    try {
+      const policy = await policyClient.getCliPolicy(slug);
+      if (policy?.blocked) {
+        logger.error(red(`Lancement refusé par Modey : ${policy.blockReason || 'Serveur bloqué.'}`));
+        if (policy.updateRequired && policy.updateCommand) {
+          logger.info(`Mettez à jour avec : ${bold(cyan(policy.updateCommand))}`);
+        }
+        process.exit(1);
+      }
+      if (policy?.updateRequired) {
+        logger.warn(yellow(`Mise à jour CLI obligatoire recommandée : v${pkg.version} -> v${policy.minVersion}`));
+        logger.info(`Commande : ${bold(cyan(policy.updateCommand || 'modey-server update'))}`);
+      } else if (policy?.updateAvailable) {
+        logger.info(gray(`Nouvelle version CLI disponible : v${policy.latestVersion} (actuelle v${pkg.version}).`));
+      }
+    } catch {
+      // Hors ligne : ne pas empêcher le lancement local sauf blocage explicite
+    }
+  }
+
+  // S'assurer que authlib-injector.jar est présent pour l'authentification Modey Launcher
+  if (config.auth?.yggdrasil_enabled !== false) {
+    try {
+      await ensureAuthlibInjector(process.cwd());
+    } catch (err) {
+      logger.warn(`Impossible de vérifier authlib-injector.jar (${err.message}).`);
+    }
+  }
 
   let updaterHandle = null;
   const clientFilesDir = path.resolve(process.cwd(), 'client-files');
@@ -89,11 +124,19 @@ async function runCommand(args = {}) {
         const { saveConfig } = require('../config.js');
         await saveConfig(config).catch(() => {});
       }
+      if (res.cliPolicy?.updateRequired && !res.cliPolicy?.blocked) {
+        logger.warn(yellow(`Mise à jour CLI requise : v${pkg.version} -> v${res.cliPolicy.minVersion} (${res.cliPolicy.updateCommand || 'modey-server update'})`));
+      }
       logger.info(
         `Heartbeat envoyé [${status === 'online' ? green('ONLINE') : yellow(status.toUpperCase())}] · ` +
         `Joueurs: ${ping.playersOnline}/${ping.playersMax} · RAM: ${mem.usedMb}Mo`
       );
     } catch (err) {
+      if (err.blocked || err.status === 403) {
+        logger.error(red(`Arrêt forcé par Modey : ${err.message}`));
+        process.emit('SIGTERM');
+        return;
+      }
       logger.warn(`Erreur émission Heartbeat : ${err.message}`);
     }
   };
@@ -122,8 +165,11 @@ async function runCommand(args = {}) {
   const launchSpec = resolveJavaLaunchSpec(process.cwd(), config);
 
   logger.step(`Démarrage du Serveur Minecraft [${bold(cyan(slug))}]`);
-  if (isStandalone) {
-    logger.info(gray('Mode autonome (privé / local) : aucune télémétrie envoyée vers une API externe.'));
+  if (!isLinked) {
+    logger.info(gray('Mode local (non lié à un profil Auth) : SSO Modey Launcher actif, sans télémétrie vers le panel.'));
+  }
+  if (launchSpec.yggdrasilInjected) {
+    logger.info(green(`Authentification Modey Yggdrasil active (${config.auth?.yggdrasil_url || 'https://api.modey.flowcrea.fr/api/yggdrasil'})`));
   }
   logger.info(`Binaire : ${launchSpec.displayCommand}`);
 

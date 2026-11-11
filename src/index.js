@@ -6,6 +6,8 @@
 /*fcs:Flow*/
 const { initCommand } = require('./commands/init.js');
 const { installCommand } = require('./commands/install.js');
+const { linkCommand } = require('./commands/link.js');
+const { updateCommand } = require('./commands/update.js');
 const { syncCommand } = require('./commands/sync.js');
 const { runCommand } = require('./commands/run.js');
 const { statusCommand } = require('./commands/status.js');
@@ -102,6 +104,17 @@ async function main(argv = process.argv.slice(2)) {
         acceptEula: parsed['accept-eula'],
         offerLaunch: true
       });
+      break;
+
+    case 'link':
+      await linkCommand({
+        token: parsed.token || parsed._[1] || '',
+        apiUrl: parsed['api-url']
+      });
+      break;
+
+    case 'update':
+      await updateCommand();
       break;
 
     case 'sync':

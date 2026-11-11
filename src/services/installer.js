@@ -3,10 +3,13 @@
  * @see https://github.com/NayrolfRdgs
  */
 
+const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 const { createWriteStream } = require('fs');
 const { pipeline } = require('stream/promises');
+
+const AUTHLIB_INJECTOR_URL = 'https://github.com/yushijinhun/authlib-injector/releases/latest/download/authlib-injector.jar';
 
 /**
  * Télécharge un fichier depuis une URL vers un chemin local avec stream
@@ -20,6 +23,21 @@ async function downloadFile(url, destPath) {
   // @ts-ignore
   await pipeline(res.body, fileStream);
   return destPath;
+}
+
+/**
+ * Télécharge authlib-injector.jar si absent afin de permettre l'authentification Modey Yggdrasil SSO
+ */
+async function ensureAuthlibInjector(dir = process.cwd(), { force = false } = {}) {
+  const jarPath = path.resolve(dir, 'authlib-injector.jar');
+  if (!force && fsSync.existsSync(jarPath)) {
+    try {
+      const stat = fsSync.statSync(jarPath);
+      if (stat.size > 10 * 1024) return { path: jarPath, downloaded: false };
+    } catch {}
+  }
+  await downloadFile(AUTHLIB_INJECTOR_URL, jarPath);
+  return { path: jarPath, downloaded: true };
 }
 
 /**
@@ -146,7 +164,9 @@ function resolveNeoForgeInstallerUrl(loaderVersion = '21.1.265') {
 }
 
 module.exports = {
+  AUTHLIB_INJECTOR_URL,
   downloadFile,
+  ensureAuthlibInjector,
   acceptEula,
   resolvePaperDownloadUrl,
   resolveVanillaDownloadUrl,

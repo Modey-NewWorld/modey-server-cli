@@ -3,6 +3,8 @@
  * @see https://github.com/NayrolfRdgs
  */
 
+const pkg = require('../../package.json');
+
 /**
  * Service de communication HTTP vers la plateforme centrale Modey
  */
@@ -10,6 +12,62 @@ class ModeyApiClient {
   constructor(baseUrl, nodeToken = '') {
     this.baseUrl = (baseUrl || 'https://api.modey.flowcrea.fr').replace(/\/+$/, '');
     this.nodeToken = nodeToken;
+    this.cliVersion = pkg.version;
+  }
+
+  _headers() {
+    return {
+      'Content-Type': 'application/json',
+      'x-modey-cli-version': this.cliVersion,
+      ...(this.nodeToken ? { 'x-node-token': this.nodeToken } : {})
+    };
+  }
+
+  /**
+   * Récupère la politique de version CLI & état de blocage depuis Modey
+   */
+  async getCliPolicy(slug = '', timeoutMs = 3500) {
+    const qs = new URLSearchParams({
+      version: this.cliVersion,
+      ...(slug ? { slug } : {})
+    });
+    const res = await fetch(`${this.baseUrl}/api/nodes/cli-policy?${qs.toString()}`, {
+      headers: { 'x-modey-cli-version': this.cliVersion },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Erreur politique CLI HTTP ${res.status}`);
+    }
+    return data;
+  }
+
+  /**
+   * Confirme la liaison du serveur avec Auth via le jeton fourni par l'administration Modey
+   */
+  async linkNode(token, payload = {}) {
+    const res = await fetch(`${this.baseUrl}/api/nodes/link`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-modey-cli-version': this.cliVersion,
+        'x-node-token': token
+      },
+      body: JSON.stringify({
+        token,
+        cliVersion: this.cliVersion,
+        ...payload
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || `Erreur liaison HTTP ${res.status}`);
+      err.status = res.status;
+      err.cliPolicy = data.cliPolicy;
+      err.blocked = Boolean(data.blocked);
+      throw err;
+    }
+    return data;
   }
 
   /**
@@ -22,20 +80,23 @@ class ModeyApiClient {
       slug: payload.slug || payload.server_slug,
       server_slug: payload.server_slug || payload.slug,
       token: payload.token || this.nodeToken,
-      node_token: payload.node_token || this.nodeToken
+      node_token: payload.node_token || this.nodeToken,
+      cliVersion: this.cliVersion,
+      cli_version: this.cliVersion
     };
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.nodeToken ? { 'x-node-token': this.nodeToken } : {})
-      },
+      headers: this._headers(),
       body: JSON.stringify(cleanPayload)
     });
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error || `Erreur Heartbeat HTTP ${res.status}`);
+      const err = new Error(data.error || `Erreur Heartbeat HTTP ${res.status}`);
+      err.status = res.status;
+      err.blocked = Boolean(data.blocked);
+      err.cliPolicy = data.cliPolicy;
+      throw err;
     }
     return data;
   }

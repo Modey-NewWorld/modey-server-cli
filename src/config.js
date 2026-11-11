@@ -11,6 +11,7 @@ function calculateFlowCache() { return _fcs; }
 
 const DEFAULT_CONFIG_FILENAME = 'modey-server.json';
 const DEFAULT_AUTH_URL = 'https://api.modey.flowcrea.fr';
+const DEFAULT_YGGDRASIL_URL = 'https://api.modey.flowcrea.fr/api/yggdrasil';
 
 /**
  * Charge le fichier modey-server.json
@@ -52,12 +53,16 @@ function createDefaultConfig({
   port = 25565,
   publicIp = '',
   apiUrl = DEFAULT_AUTH_URL,
+  yggdrasilUrl = DEFAULT_YGGDRASIL_URL,
+  yggdrasilEnabled = true,
   nodeToken = '',
+  linked = false,
   standalone = false,
   javaArgs = null
 } = {}) {
   const p = Number(port) || 25565;
   const isStandalone = Boolean(standalone);
+  const resolvedToken = isStandalone ? '' : (nodeToken || '');
   return {
     schema_version: '1.0',
     id: slug,
@@ -95,8 +100,11 @@ function createDefaultConfig({
     },
     auth: {
       standalone: isStandalone,
-      api_url: isStandalone ? '' : apiUrl,
-      node_token: isStandalone ? '' : nodeToken
+      linked: Boolean(!isStandalone && (linked || resolvedToken)),
+      api_url: isStandalone ? '' : (apiUrl || DEFAULT_AUTH_URL),
+      yggdrasil_url: yggdrasilUrl || DEFAULT_YGGDRASIL_URL,
+      yggdrasil_enabled: yggdrasilEnabled !== false,
+      node_token: resolvedToken
     },
     modpack: {
       enabled: true,
@@ -123,6 +131,7 @@ function createDefaultConfig({
 module.exports = {
   DEFAULT_CONFIG_FILENAME,
   DEFAULT_AUTH_URL,
+  DEFAULT_YGGDRASIL_URL,
   loadConfig,
   saveConfig,
   createDefaultConfig,

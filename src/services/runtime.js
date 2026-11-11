@@ -61,14 +61,22 @@ function resolveJavaLaunchSpec(serverDir, config = {}, platform = process.platfo
   const loader = config.identity?.loader || '';
   const loaderVersion = config.identity?.loader_version || '';
 
+  const yggdrasilEnabled = config.auth?.yggdrasil_enabled !== false;
+  const authlibJarPath = path.join(serverDir, 'authlib-injector.jar');
+  const yggdrasilUrl = config.auth?.yggdrasil_url || 'https://api.modey.flowcrea.fr/api/yggdrasil';
+  const javaAgentArgs = (yggdrasilEnabled && fs.existsSync(authlibJarPath))
+    ? [`-javaagent:authlib-injector.jar=${yggdrasilUrl}`]
+    : [];
+
   const modLoaderArgsRel = findModLoaderArgsFile(serverDir, { loader, loaderVersion, platform });
   if (modLoaderArgsRel) {
-    const args = [...javaArgs, `@${modLoaderArgsRel}`, 'nogui'];
+    const args = [...javaArgs, ...javaAgentArgs, `@${modLoaderArgsRel}`, 'nogui'];
     return {
       mode: 'args-file',
       command: 'java',
       args,
       target: modLoaderArgsRel,
+      yggdrasilInjected: javaAgentArgs.length > 0,
       displayCommand: `java ${args.join(' ')}`
     };
   }
@@ -82,12 +90,13 @@ function resolveJavaLaunchSpec(serverDir, config = {}, platform = process.platfo
     );
   }
 
-  const args = [...javaArgs, '-jar', jarFile, 'nogui'];
+  const args = [...javaArgs, ...javaAgentArgs, '-jar', jarFile, 'nogui'];
   return {
     mode: 'jar',
     command: 'java',
     args,
     target: jarFile,
+    yggdrasilInjected: javaAgentArgs.length > 0,
     displayCommand: `java ${args.join(' ')}`
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "@modey/server-cli",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "CLI officiel pour initialiser, configurer et connecter un serveur Minecraft au réseau décentralisé Modey",
   "main": "src/index.js",
   "bin": {

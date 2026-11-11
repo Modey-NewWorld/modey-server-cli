@@ -13,6 +13,7 @@ const { loadConfig } = require('../config.js');
 const { initCommand } = require('./init.js');
 const {
   downloadFile,
+  ensureAuthlibInjector,
   acceptEula,
   resolvePaperDownloadUrl,
   resolveVanillaDownloadUrl,
@@ -69,9 +70,20 @@ async function installCommand(args = {}) {
   }
   logger.info('Dossiers /mods, /config et /client-files prêts.');
 
-  // 2. Acceptation du contrat EULA et server.properties initial
+  // 2. Acceptation du contrat EULA, server.properties et Modey Yggdrasil SSO (authlib-injector)
   await acceptEula();
   logger.success('Contrat eula.txt accepté (eula=true).');
+
+  if (config.auth?.yggdrasil_enabled !== false) {
+    try {
+      const authRes = await ensureAuthlibInjector(process.cwd());
+      logger.success(authRes.downloaded
+        ? 'Agent Modey Yggdrasil SSO (authlib-injector.jar) installé.'
+        : 'Agent Modey Yggdrasil SSO (authlib-injector.jar) prêt.');
+    } catch (authErr) {
+      logger.warn(`Impossible de télécharger authlib-injector.jar (${authErr.message}).`);
+    }
+  }
 
   const propsPath = path.resolve(process.cwd(), 'server.properties');
   if (!fsSync.existsSync(propsPath)) {
