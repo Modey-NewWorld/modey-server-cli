@@ -182,6 +182,110 @@ function normalizePublicBaseUrl(publicUrl, req) {
   return `${proto}://${host}`;
 }
 
+function getImageMimeType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.svg') return 'image/svg+xml';
+  return 'image/png';
+}
+
+function readServerConfigSafe(serverDir) {
+  try {
+    const cfgPath = path.join(serverDir, 'modey-server.json');
+    if (fs.existsSync(cfgPath)) {
+      return JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    }
+  } catch (_) {}
+  return null;
+}
+
+function resolveVisualAssetFile(serverDir, kind, config = null) {
+  const cfg = config || readServerConfigSafe(serverDir) || {};
+  const visuals = cfg.visuals || {};
+  const explicitRaw = kind === 'banner'
+    ? (visuals.banner_path || visuals.banner_url || '')
+    : (visuals.icon_path || visuals.icon_url || '');
+
+  const cleanExplicit = String(explicitRaw || '').trim();
+  if (/^https?:\/\//i.test(cleanExplicit) || cleanExplicit.startsWith('data:')) {
+    return null;
+  }
+
+  const rootPrefix = path.resolve(serverDir) + path.sep;
+  const candidates = [];
+  if (cleanExplicit) {
+    candidates.push(cleanExplicit);
+  }
+  if (kind === 'banner') {
+    candidates.push(
+      'visuals/banner.png', 'visuals/banner.jpg', 'visuals/banner.jpeg', 'visuals/banner.webp',
+      'banner.png', 'banner.jpg', 'banner.jpeg', 'banner.webp'
+    );
+  } else {
+    candidates.push(
+      'visuals/icon.png', 'visuals/icon.jpg', 'visuals/icon.jpeg', 'visuals/icon.webp',
+      'icon.png', 'icon.jpg', 'server-icon.png'
+    );
+  }
+
+  for (const rel of candidates) {
+    const resolved = path.resolve(serverDir, rel);
+    if (!resolved.startsWith(rootPrefix)) continue;
+    try {
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+        return { path: resolved, mimeType: getImageMimeType(resolved) };
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+function resolveLocalVisualUrls(serverDir, baseUrl, config = null) {
+  const cfg = config || readServerConfigSafe(serverDir) || {};
+  const visuals = cfg.visuals || {};
+  const cleanBase = String(baseUrl || '').replace(/\/files-updater\/?$/i, '').replace(/\/+$/, '');
+
+  const resolveField = (kind, rawVal) => {
+    const clean = String(rawVal || '').trim();
+    if (/^https?:\/\//i.test(clean) || clean.startsWith('data:')) return clean;
+    if (cleanBase && resolveVisualAssetFile(serverDir, kind, cfg)) {
+      return `${cleanBase}/assets/${kind}`;
+    }
+    return clean;
+  };
+
+  return {
+    bannerUrl: resolveField('banner', visuals.banner_path || visuals.banner_url),
+    iconUrl: resolveField('icon', visuals.icon_path || visuals.icon_url)
+  };
+}
+
+function buildServerMetaPayload(serverDir, baseUrl, fallbackSlug = 'server') {
+  const cfg = readServerConfigSafe(serverDir) || {};
+  const slug = cfg.identity?.slug || cfg.slug || fallbackSlug;
+  const name = cfg.launcher?.display_name || cfg.identity?.name || cfg.name || slug;
+  const visuals = resolveLocalVisualUrls(serverDir, baseUrl, cfg);
+  const cleanBase = String(baseUrl || '').replace(/\/files-updater\/?$/i, '').replace(/\/+$/, '');
+
+  return {
+    success: true,
+    slug,
+    name,
+    description: cfg.launcher?.description || cfg.launcherOptions?.description || '',
+    tags: Array.isArray(cfg.launcher?.tags) ? cfg.launcher.tags : (Array.isArray(cfg.launcherOptions?.tags) ? cfg.launcherOptions.tags : []),
+    minecraftVersion: cfg.game?.minecraft_version || cfg.identity?.minecraft_version || '1.21.1',
+    loader: cfg.game?.loader || cfg.identity?.loader || 'neoforge',
+    loaderVersion: cfg.game?.loader_version || cfg.identity?.loader_version || '',
+    port: Number(cfg.game?.port || cfg.network?.port || 25565),
+    motd: cfg.identity?.motd || '',
+    bannerUrl: visuals.bannerUrl || '',
+    iconUrl: visuals.iconUrl || '',
+    updaterUrl: cfg.modpack?.public_updater_url || (cleanBase ? `${cleanBase}/files-updater` : '')
+  };
+}
+
 function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server', publicUrl = '' } = {}) {
   const clientFilesDir = path.resolve(serverDir, 'client-files');
 
@@ -207,6 +311,36 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
     if (reqPath === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, service: 'modey-files-updater', slug }));
+      return;
+    }
+
+    if (reqPath === '/server-meta') {
+      const baseUrl = normalizePublicBaseUrl(publicUrl, req);
+      const meta = buildServerMetaPayload(serverDir, baseUrl, slug);
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=15' });
+      res.end(req.method === 'HEAD' ? undefined : JSON.stringify(meta));
+      return;
+    }
+
+    if (reqPath === '/assets/banner' || reqPath === '/assets/icon') {
+      const kind = reqPath === '/assets/banner' ? 'banner' : 'icon';
+      const asset = resolveVisualAssetFile(serverDir, kind);
+      if (!asset) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Asset not found' }));
+        return;
+      }
+      const stats = fs.statSync(asset.path);
+      res.writeHead(200, {
+        'Content-Type': asset.mimeType,
+        'Content-Length': stats.size,
+        'Cache-Control': 'public, max-age=300'
+      });
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+      fs.createReadStream(asset.path).pipe(res);
       return;
     }
 
@@ -318,6 +452,9 @@ function startUpdaterServer({
 
 module.exports = {
   buildClientFilesManifest,
+  buildServerMetaPayload,
+  resolveLocalVisualUrls,
+  resolveVisualAssetFile,
   createUpdaterRequestHandler,
   startUpdaterServer
 };

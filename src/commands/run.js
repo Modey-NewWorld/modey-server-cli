@@ -9,7 +9,7 @@ const path = require('path');
 const { loadConfig, saveConfig, DEFAULT_AUTH_URL } = require('../config.js');
 const { ModeyApiClient } = require('../services/api.js');
 const { getSystemMemory, pingMinecraftServer } = require('../services/monitor.js');
-const { startUpdaterServer } = require('../services/updaterServer.js');
+const { startUpdaterServer, resolveLocalVisualUrls } = require('../services/updaterServer.js');
 const { resolveJavaLaunchSpec } = require('../services/runtime.js');
 const { ensureAuthlibInjector } = require('../services/installer.js');
 const { ServerTui } = require('../services/tui.js');
@@ -117,6 +117,7 @@ async function runCommand(args = {}) {
   let heartbeatTimer = null;
 
   const launchSpec = args.daemonOnly ? null : resolveJavaLaunchSpec(process.cwd(), config);
+  let didSyncMetadata = false;
 
   const sendTick = async (overrideStatus = null) => {
     if (!client) return;
@@ -152,6 +153,28 @@ async function runCommand(args = {}) {
         config.auth = { ...(config.auth || {}), node_token: returnedToken, linked: false };
         client.nodeToken = returnedToken;
         await saveConfig(config).catch(() => {});
+      }
+
+      // Synchronisation automatique unique des métadonnées (nom, description, tags, visuels) au démarrage
+      if (!didSyncMetadata && overrideStatus !== 'offline') {
+        didSyncMetadata = true;
+        const effectiveUpdaterUrl = updaterHandle?.url || config.modpack?.public_updater_url || '';
+        const visualUrls = resolveLocalVisualUrls(process.cwd(), effectiveUpdaterUrl, config);
+        const manifestToSync = {
+          ...config,
+          visuals: {
+            ...(config.visuals || {}),
+            ...(visualUrls.bannerUrl ? { banner_url: visualUrls.bannerUrl } : {}),
+            ...(visualUrls.iconUrl ? { icon_url: visualUrls.iconUrl } : {})
+          },
+          modpack: {
+            ...(config.modpack || {}),
+            ...(effectiveUpdaterUrl ? { public_updater_url: effectiveUpdaterUrl } : {})
+          }
+        };
+        await client.syncMetadata(slug, manifestToSync).catch(() => {
+          didSyncMetadata = false;
+        });
       }
 
       if (tui) {

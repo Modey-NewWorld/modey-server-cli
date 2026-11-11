@@ -128,7 +128,11 @@ class ModeyApiClient {
           id: serverSlug,
           slug: serverSlug,
           updater_port: updaterPort,
-          updater_url: updaterUrl
+          updater_url: updaterUrl,
+          modpack: {
+            ...modpack,
+            ...(updaterUrl ? { updater_url: updaterUrl } : {})
+          }
         }
       })
     });

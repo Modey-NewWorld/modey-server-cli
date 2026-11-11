@@ -84,3 +84,48 @@ test('startUpdaterServer sert le manifeste ETag 304, les fichiers et bloque path
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('startUpdaterServer sert /server-meta et les images locales /assets/banner et /assets/icon', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modey-updater-meta-'));
+  const visualsDir = path.join(tmpDir, 'visuals');
+  fs.mkdirSync(visualsDir, { recursive: true });
+  fs.writeFileSync(path.join(visualsDir, 'banner.png'), Buffer.from('fake-png-banner'));
+  fs.writeFileSync(path.join(tmpDir, 'server-icon.png'), Buffer.from('fake-png-icon'));
+  fs.writeFileSync(path.join(tmpDir, 'modey-server.json'), JSON.stringify({
+    identity: { name: 'Mon Serveur Créateur', slug: 'mon-serveur', minecraft_version: '1.21.1', loader: 'neoforge', loader_version: '21.1.265' },
+    game: { port: 25565 },
+    launcher: { display_name: 'Mon Serveur Créateur', description: 'Un monde survie moddé unique.', tags: ['Survie', 'RP'] },
+    visuals: { banner_url: '', icon_url: '' },
+    modpack: { updater_port: 3008, public_updater_url: '' }
+  }));
+
+  const srv = await startUpdaterServer({
+    serverDir: tmpDir,
+    port: 0,
+    host: '127.0.0.1',
+    slug: 'mon-serveur'
+  });
+
+  try {
+    const metaResp = await fetch(`http://127.0.0.1:${srv.port}/server-meta`);
+    assert.equal(metaResp.status, 200);
+    const meta = await metaResp.json();
+    assert.equal(meta.name, 'Mon Serveur Créateur');
+    assert.equal(meta.description, 'Un monde survie moddé unique.');
+    assert.deepEqual(meta.tags, ['Survie', 'RP']);
+    assert.equal(meta.bannerUrl, `http://127.0.0.1:${srv.port}/assets/banner`);
+    assert.equal(meta.iconUrl, `http://127.0.0.1:${srv.port}/assets/icon`);
+
+    const bannerResp = await fetch(meta.bannerUrl);
+    assert.equal(bannerResp.status, 200);
+    assert.equal(bannerResp.headers.get('content-type'), 'image/png');
+    assert.equal(await bannerResp.text(), 'fake-png-banner');
+
+    const iconResp = await fetch(meta.iconUrl);
+    assert.equal(iconResp.status, 200);
+    assert.equal(await iconResp.text(), 'fake-png-icon');
+  } finally {
+    await srv.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
