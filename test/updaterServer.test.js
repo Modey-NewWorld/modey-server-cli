@@ -129,3 +129,55 @@ test('startUpdaterServer sert /server-meta et les images locales /assets/banner 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Security hardening: port 3008 bloque méthodes écriture, dotfiles, null-byte et extensions non-images', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modey-updater-sec-'));
+  const reqDir = path.join(tmpDir, 'client-files', 'required', 'mods');
+  fs.mkdirSync(reqDir, { recursive: true });
+  fs.writeFileSync(path.join(reqDir, '.hidden-secret'), 'secret');
+  fs.writeFileSync(path.join(reqDir, 'mod.jar'), 'jarbytes');
+  fs.writeFileSync(path.join(tmpDir, 'modey-server.json'), JSON.stringify({
+    identity: { slug: 'sec-test' },
+    auth: { node_token: 'SUPER_SECRET_TOKEN' },
+    visuals: { banner_path: 'modey-server.json' }
+  }));
+
+  const srv = await startUpdaterServer({
+    serverDir: tmpDir,
+    port: 0,
+    host: '127.0.0.1',
+    slug: 'sec-test'
+  });
+
+  try {
+    const manifest = await (await fetch(`http://127.0.0.1:${srv.port}/files-updater`, {
+      headers: { 'X-Forwarded-Proto': 'javascript' }
+    })).json();
+    assert.equal(manifest.count, 1);
+    assert.equal(manifest.files[0].name, 'mod.jar');
+    assert.ok(manifest.files[0].url.startsWith('http://'));
+
+    const postResp = await fetch(`http://127.0.0.1:${srv.port}/files/required/mods/mod.jar`, { method: 'POST' });
+    assert.equal(postResp.status, 405);
+
+    const dotResp = await fetch(`http://127.0.0.1:${srv.port}/files/required/mods/.hidden-secret`);
+    assert.equal(dotResp.status, 403);
+
+    const nullResp = await fetch(`http://127.0.0.1:${srv.port}/files/required/mods/mod%00.jar`);
+    assert.equal(nullResp.status, 403);
+
+    const assetSecretResp = await fetch(`http://127.0.0.1:${srv.port}/assets/banner`);
+    assert.equal(assetSecretResp.status, 404);
+
+    const metaText = await (await fetch(`http://127.0.0.1:${srv.port}/server-meta`)).text();
+    assert.equal(metaText.includes('SUPER_SECRET_TOKEN'), false);
+
+    const jarResp = await fetch(`http://127.0.0.1:${srv.port}/files/required/mods/mod.jar`);
+    assert.equal(jarResp.status, 200);
+    assert.equal(jarResp.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(jarResp.headers.get('content-security-policy') || '', /sandbox/);
+  } finally {
+    await srv.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

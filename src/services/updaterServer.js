@@ -57,7 +57,8 @@ function scanDirectory(baseDir, currentRel, baseUrl, urlPrefix = '') {
     if (entry.isDirectory()) {
       results = results.concat(scanDirectory(baseDir, relItemPath, baseUrl, urlPrefix));
     } else if (entry.isFile()) {
-      if (entry.name === 'distribution.json' || entry.name === '.modey-manifest.json') continue;
+      if (entry.name.startsWith('.') || entry.name === 'distribution.json' || entry.name === '.modey-manifest.json') continue;
+      if (entry.isSymbolicLink && entry.isSymbolicLink()) continue;
       const stats = fs.statSync(fullItemPath);
       const sha1 = computeSha1Cached(fullItemPath, stats);
       const destDir = path.dirname(relItemPath);
@@ -214,10 +215,14 @@ function normalizePublicBaseUrl(publicUrl, req) {
   if (publicUrl && String(publicUrl).trim()) {
     return String(publicUrl).trim().replace(/\/files-updater\/?$/i, '').replace(/\/+$/, '');
   }
-  const host = req?.headers?.host || '127.0.0.1:3008';
-  const proto = req?.headers?.['x-forwarded-proto'] || 'http';
-  return `${proto}://${host}`;
+  const rawHost = String(req?.headers?.host || '127.0.0.1:3008').trim();
+  const safeHost = /^[a-z0-9.\-:\[\]]+$/i.test(rawHost) ? rawHost : '127.0.0.1:3008';
+  const rawProto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const safeProto = rawProto === 'https' ? 'https' : 'http';
+  return `${safeProto}://${safeHost}`;
 }
+
+const ALLOWED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg']);
 
 function getImageMimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
@@ -267,12 +272,25 @@ function resolveVisualAssetFile(serverDir, kind, config = null) {
     );
   }
 
+  let realRoot = '';
+  try {
+    realRoot = fs.realpathSync(serverDir);
+  } catch (_) {
+    return null;
+  }
+  const realRootPrefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+
   for (const rel of candidates) {
+    if (!rel || String(rel).includes('\0')) continue;
+    const ext = path.extname(String(rel)).toLowerCase();
+    if (!ALLOWED_IMAGE_EXTENSIONS.has(ext)) continue;
     const resolved = path.resolve(serverDir, rel);
     if (!resolved.startsWith(rootPrefix)) continue;
     try {
       if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
-        return { path: resolved, mimeType: getImageMimeType(resolved) };
+        const realAsset = fs.realpathSync(resolved);
+        if (!realAsset.startsWith(realRootPrefix)) continue;
+        return { path: realAsset, mimeType: getImageMimeType(realAsset) };
       }
     } catch (_) {}
   }
@@ -337,9 +355,11 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
   const clientFilesDir = path.resolve(serverDir, 'client-files');
 
   return (req, res) => {
+    try {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, If-None-Match');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -381,6 +401,7 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
       res.writeHead(200, {
         'Content-Type': asset.mimeType,
         'Content-Length': stats.size,
+        'Content-Security-Policy': "default-src 'none'; sandbox",
         'Cache-Control': 'public, max-age=300'
       });
       if (req.method === 'HEAD') {
@@ -425,6 +446,12 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
         return;
       }
 
+      if (!decodedRel || decodedRel.includes('\0') || decodedRel.split(/[\\/]/).some((seg) => seg.startsWith('.'))) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Forbidden' }));
+        return;
+      }
+
       const resolvedFile = path.resolve(clientFilesDir, decodedRel);
       const rootPrefix = clientFilesDir.endsWith(path.sep) ? clientFilesDir : clientFilesDir + path.sep;
       if (!resolvedFile.startsWith(rootPrefix)) {
@@ -439,7 +466,24 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
         return;
       }
 
-      const stats = fs.statSync(resolvedFile);
+      let realClientRoot = '';
+      let realTargetFile = '';
+      try {
+        realClientRoot = fs.realpathSync(clientFilesDir);
+        realTargetFile = fs.realpathSync(resolvedFile);
+      } catch (_) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'File not found' }));
+        return;
+      }
+      const realRootPrefix = realClientRoot.endsWith(path.sep) ? realClientRoot : realClientRoot + path.sep;
+      if (!realTargetFile.startsWith(realRootPrefix)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Forbidden' }));
+        return;
+      }
+
+      const stats = fs.statSync(realTargetFile);
       if (!stats.isFile()) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: 'Not a file' }));
@@ -449,6 +493,7 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',
         'Content-Length': stats.size,
+        'Content-Security-Policy': "default-src 'none'; sandbox",
         'Last-Modified': stats.mtime.toUTCString(),
         'Cache-Control': 'public, max-age=300'
       });
@@ -458,7 +503,7 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
         return;
       }
 
-      const stream = fs.createReadStream(resolvedFile);
+      const stream = fs.createReadStream(realTargetFile);
       stream.on('error', () => {
         if (!res.headersSent) res.writeHead(500);
         res.end();
@@ -469,6 +514,12 @@ function createUpdaterRequestHandler({ serverDir = process.cwd(), slug = 'server
 
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: false, error: 'Not Found' }));
+    } catch (_) {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+      }
+      res.end(JSON.stringify({ success: false, error: 'Internal Server Error' }));
+    }
   };
 }
 
@@ -481,6 +532,8 @@ function startUpdaterServer({
 } = {}) {
   const handler = createUpdaterRequestHandler({ serverDir, slug, publicUrl });
   const server = http.createServer(handler);
+  server.headersTimeout = 10000;
+  server.keepAliveTimeout = 5000;
 
   return new Promise((resolve, reject) => {
     server.once('error', reject);
