@@ -7,7 +7,11 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { resolveEffectiveClientConfig, verifyAccessPassword } = require('../config.js');
+const {
+  resolveEffectiveClientConfig,
+  verifyAccessPassword,
+  isPasswordRequiredForConfig
+} = require('../config.js');
 
 const sha1Cache = new Map(); // fullPath -> { size, mtimeMs, sha1 }
 
@@ -255,7 +259,7 @@ function readServerConfigSafe(serverDir) {
 
 function resolveUpdaterAuthState(cfg = null) {
   const passwordHash = String(cfg?.auth?.private_password_hash || '').trim();
-  const passwordRequired = Boolean(passwordHash || cfg?.auth?.standalone || cfg?.auth?.require_password);
+  const passwordRequired = Boolean(passwordHash || isPasswordRequiredForConfig(cfg));
   const passwordVersion = String(cfg?.auth?.private_password_version || '').trim() || (passwordHash ? 'v1' : 'unset');
   return {
     protected: passwordRequired,

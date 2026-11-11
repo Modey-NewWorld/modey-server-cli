@@ -265,10 +265,58 @@ async function runCommand(args = {}) {
         await shutdown();
         process.exit(1);
       }
+
+      // Repli Hors ligne / local : garantir immédiatement un mot de passe + Files-Updater actif
+      let generatedOfflinePwd = '';
+      if (!config.auth?.linked) {
+        config.auth = config.auth || {};
+        let offlineDirty = false;
+        if (config.auth.require_password !== true) {
+          config.auth.require_password = true;
+          offlineDirty = true;
+        }
+        if (!String(config.auth.private_password_hash || '').trim()) {
+          generatedOfflinePwd = generateRandomAccessPassword();
+          config.auth.private_password = generatedOfflinePwd;
+          config.auth.private_password_hash = hashAccessPassword(generatedOfflinePwd);
+          config.auth.private_password_version = generatePasswordVersion();
+          offlineDirty = true;
+        }
+        if (offlineDirty) {
+          await saveConfig(config, process.cwd()).catch(() => {});
+        }
+        if (!updaterHandle) {
+          try {
+            const updaterPort = Number(config.modpack?.updater_port || 3008);
+            updaterHandle = await startUpdaterServer({
+              serverDir: process.cwd(),
+              port: updaterPort,
+              slug,
+              publicUrl: config.modpack?.public_updater_url || ''
+            });
+          } catch {}
+        }
+      }
+
       if (tui) {
-        tui.updateState({ authStatus: yellow('○ Hors ligne / local') });
+        tui.updateState({
+          authStatus: yellow('○ Hors ligne / local'),
+          ...(updaterHandle?.url ? { updaterUrl: updaterHandle.url } : {}),
+          ...(isPasswordRequiredForConfig(config) || config.auth?.require_password
+            ? {
+                passwordRequired: true,
+                accessPassword: generatedOfflinePwd || config.auth?.private_password || ''
+              }
+            : {})
+        });
+        if (generatedOfflinePwd) {
+          logger.warn(`Basculé en mode local sans lien Modey : mot de passe généré (${generatedOfflinePwd}).`);
+        }
       } else {
         logger.warn(`Erreur émission Heartbeat : ${err.message}`);
+        if (generatedOfflinePwd) {
+          logger.info(`Mode local protégé par mot de passe : ${bold(cyan(generatedOfflinePwd))}`);
+        }
       }
     }
   };

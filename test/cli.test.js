@@ -16,6 +16,7 @@ const {
   calculateFlowCache,
   isServerModdedLoader,
   resolveEffectiveClientConfig,
+  isPasswordRequiredForConfig,
   hashAccessPassword,
   verifyAccessPassword,
   generatePasswordVersion
@@ -382,14 +383,32 @@ test('Security: ensureRequiredServerPassword génère aléatoirement si absent s
     });
     assert.equal(resAgain.updated, false);
 
-    // 3. Serveur Réseau Modey sans require_password -> aucune modification
-    const networkPublic = createDefaultConfig({ slug: 'pub-net', standalone: false });
+    // 3. Serveur Réseau Modey lié (node_token présent) sans require_password -> aucune modification
+    const networkPublic = createDefaultConfig({ slug: 'pub-net', standalone: false, nodeToken: 'tok-pub-net', linked: true });
     const resPub = await ensureRequiredServerPassword(networkPublic, {
       serverDir: tmpDir,
       interactive: false,
       quiet: true
     });
     assert.equal(resPub.updated, false);
+
+    // 4. Serveur Réseau Modey non lié (node_token vide, ex: config locale Planity) -> mot de passe exigé et généré
+    const unlinkedLocal = createDefaultConfig({
+      slug: 'planity-unlinked',
+      standalone: false,
+      apiUrl: 'https://api.modey.flowcrea.fr',
+      nodeToken: ''
+    });
+    assert.equal(isPasswordRequiredForConfig(unlinkedLocal), true);
+    const resUnlinked = await ensureRequiredServerPassword(unlinkedLocal, {
+      serverDir: tmpDir,
+      interactive: false,
+      quiet: true
+    });
+    assert.equal(resUnlinked.updated, true);
+    assert.equal(resUnlinked.generated, true);
+    assert.equal(unlinkedLocal.auth.require_password, true);
+    assert.ok(verifyAccessPassword(resUnlinked.password, unlinkedLocal.auth.private_password_hash));
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }

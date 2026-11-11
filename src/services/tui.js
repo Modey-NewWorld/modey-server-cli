@@ -82,7 +82,7 @@ class ServerTui {
       loader: options.loader || 'neoforge',
       loaderVersion: options.loaderVersion || '',
       port: options.port || 25565,
-      cliVersion: options.cliVersion || '1.4.2',
+      cliVersion: options.cliVersion || '1.4.3',
       status: 'starting',
       playersOnline: 0,
       playersMax: 20,

@@ -32,14 +32,15 @@ function generateRandomAccessPassword(length = 12) {
 function isPasswordRequiredForConfig(config = null) {
   if (!config) return false;
   const vis = String(config?.launcherOptions?.visibility || config?.visibility || '').toUpperCase();
-  const legacyLocal = Boolean(!config?.auth?.api_url && !config?.auth?.node_token && config?.auth?.standalone !== false);
+  const hasNodeToken = Boolean(String(config?.auth?.node_token || '').trim());
+  const unlinkedAuth = Boolean(config?.auth && !hasNodeToken);
   return Boolean(
     config?.auth?.standalone === true
+    || unlinkedAuth
     || config?.auth?.require_password === true
     || config?.auth?.private === true
     || vis === 'PROTECTED'
     || vis === 'HIDDEN'
-    || legacyLocal
   );
 }
 
